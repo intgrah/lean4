@@ -11,3 +11,7 @@
 //! is responsible only for the framing around those payloads.
 
 pub mod format;
+pub mod record;
+
+pub use format::{FORMAT_VERSION, FieldTag, FileHeader, FormatError};
+pub use record::{ReadError, Record, RecordReader, RecordWriter};
