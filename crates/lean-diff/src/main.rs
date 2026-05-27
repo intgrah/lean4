@@ -1,9 +1,12 @@
+mod registry;
+
 use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use lean_corpus::{ReadError, RecordReader};
+use registry::{ReplayOutcome, builtin};
 
 const USAGE: &str = "\
 usage: lean-diff --function <fqn> --corpus <path>
@@ -88,15 +91,21 @@ fn main() -> ExitCode {
         args.function, pin_sha_hex, reader.header.version
     );
 
+    let registry = builtin();
+    let replay_fn = registry.get(&args.function);
+    if replay_fn.is_none() {
+        eprintln!(
+            "lean-diff: no Rust impl registered for {}; walking records to validate framing only",
+            args.function
+        );
+    }
+
     let mut count: usize = 0;
+    let mut matched: usize = 0;
+    let mut skipped: usize = 0;
     for record in reader {
-        match record {
-            Ok(_r) => {
-                count += 1;
-                if args.limit.is_some_and(|n| count >= n) {
-                    break;
-                }
-            }
+        let record = match record {
+            Ok(r) => r,
             Err(ReadError::Io(e)) => {
                 eprintln!("error: io while reading record {}: {e}", count + 1);
                 return ExitCode::from(1);
@@ -105,9 +114,30 @@ fn main() -> ExitCode {
                 eprintln!("error: format at record {}: {e}", count + 1);
                 return ExitCode::from(1);
             }
+        };
+        count += 1;
+        if let Some(f) = replay_fn {
+            match f.replay(&record) {
+                ReplayOutcome::Match => matched += 1,
+                ReplayOutcome::Skipped { reason } => {
+                    skipped += 1;
+                    eprintln!("record {count}: skipped: {reason}");
+                }
+                ReplayOutcome::Diverged { detail } => {
+                    eprintln!("record {count}: DIVERGED: {detail}");
+                    return ExitCode::from(1);
+                }
+            }
+        }
+        if args.limit.is_some_and(|n| count >= n) {
+            break;
         }
     }
 
-    eprintln!("lean-diff: {count} record(s) walked, dispatch not yet implemented");
+    if replay_fn.is_some() {
+        eprintln!("lean-diff: {count} record(s); {matched} matched, {skipped} skipped");
+    } else {
+        eprintln!("lean-diff: {count} record(s) walked, no dispatch registered");
+    }
     ExitCode::SUCCESS
 }
