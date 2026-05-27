@@ -8,8 +8,9 @@ on:
     branches:
       - riir
     paths:
-      - "crates/lean-override/wrap-list.txt"
-      - "crates/lean-override/**"
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
       - "src/CMakeLists.txt"
       - "src/Lean/**"
       - "src/Init/**"
