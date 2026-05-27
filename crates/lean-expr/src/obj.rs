@@ -25,6 +25,12 @@ pub struct LeanObj {
     ptr: NonNull<lean_object>,
 }
 
+impl core::fmt::Debug for LeanObj {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "LeanObj({:p})", self.ptr.as_ptr())
+    }
+}
+
 impl LeanObj {
     /// Wrap a `lean_obj_arg` (i.e., a `*mut lean_object` whose RC the caller
     /// has transferred to us).
@@ -69,6 +75,24 @@ impl LeanObj {
     pub fn as_ptr(&self) -> *mut lean_object {
         self.ptr.as_ptr()
     }
+
+    /// True iff this object is a small-int scalar (Lean uses tagged
+    /// pointers: an `o` with the low bit set is the integer `o >> 1`).
+    /// Nullary inductive constructors are encoded as scalars whose value
+    /// is the constructor index, so this is how zero-argument variants
+    /// are detected.
+    #[inline]
+    pub fn is_scalar(&self) -> bool {
+        unsafe { lean_runtime_sys::lean_is_scalar(self.as_ptr()) != 0 }
+    }
+
+    /// Constructor tag for boxed objects, or the scalar value for tagged-
+    /// pointer scalars. Callers must inspect [`Self::is_scalar`] first if
+    /// the distinction matters.
+    #[inline]
+    pub fn tag(&self) -> u32 {
+        unsafe { lean_runtime_sys::lean_obj_tag(self.as_ptr()) }
+    }
 }
 
 impl Drop for LeanObj {
@@ -112,5 +136,17 @@ impl<'a> LeanObjRef<'a> {
     #[inline]
     pub fn as_ptr(self) -> *mut lean_object {
         self.ptr.as_ptr()
+    }
+
+    /// See [`LeanObj::is_scalar`].
+    #[inline]
+    pub fn is_scalar(self) -> bool {
+        unsafe { lean_runtime_sys::lean_is_scalar(self.as_ptr()) != 0 }
+    }
+
+    /// See [`LeanObj::tag`].
+    #[inline]
+    pub fn tag(self) -> u32 {
+        unsafe { lean_runtime_sys::lean_obj_tag(self.as_ptr()) }
     }
 }

@@ -8,6 +8,8 @@
 //! ports, where the Rust code is interoperating with compiled Lean code
 //! that already speaks this representation.
 
+mod name;
 mod obj;
 
+pub use name::{Name, NameKind, NameRef};
 pub use obj::{LeanObj, LeanObjRef};
