@@ -7,6 +7,7 @@ license.workspace = true
 repository.workspace = true
 description = "Pass-A ports of Lean.Meta.* functions (whnf, isDefEq, inferType, synthInstance, ...)."
 publish = false
+build = "build.rs"
 
 [dependencies]
 lean-runtime-sys.workspace = true

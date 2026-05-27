@@ -1,6 +1,6 @@
 use lean_runtime_sys::{
-    b_lean_obj_arg, lean_box, lean_ctor_get, lean_inc_ref, lean_name_eq, lean_name_hash,
-    lean_obj_arg,
+    b_lean_obj_arg, lean_box, lean_ctor_get, lean_inc_ref, lean_is_scalar, lean_name_eq,
+    lean_name_hash, lean_obj_arg, lean_string_byte_size, lean_string_cstr, lean_unbox,
 };
 
 use crate::obj::{LeanObj, LeanObjRef};
@@ -121,6 +121,33 @@ impl<'a> NameRef<'a> {
 
     pub fn hash(self) -> u64 {
         unsafe { lean_name_hash(self.obj.as_ptr()) }
+    }
+
+    pub fn str_value(self) -> Option<&'a [u8]> {
+        if self.kind() != NameKind::Str {
+            return None;
+        }
+        unsafe {
+            let s = lean_ctor_get(self.obj.as_ptr(), 1);
+            let bytes = lean_string_byte_size(s);
+            let len = bytes.saturating_sub(1);
+            let ptr = lean_string_cstr(s) as *const u8;
+            Some(core::slice::from_raw_parts(ptr, len))
+        }
+    }
+
+    pub fn num_value(self) -> Option<u64> {
+        if self.kind() != NameKind::Num {
+            return None;
+        }
+        unsafe {
+            let n = lean_ctor_get(self.obj.as_ptr(), 1);
+            if lean_is_scalar(n) != 0 {
+                Some(lean_unbox(n) as u64)
+            } else {
+                None
+            }
+        }
     }
 }
 
