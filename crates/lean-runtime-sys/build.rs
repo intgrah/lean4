@@ -12,8 +12,14 @@ fn main() {
 
     println!("cargo:rerun-if-env-changed=LEAN_INCLUDE_DIR");
     println!("cargo:rerun-if-env-changed=LIBCLANG_PATH");
-    println!("cargo:rerun-if-changed={}/lean/lean.h", include_dir.display());
-    println!("cargo:rerun-if-changed={}/lean/config.h", include_dir.display());
+    println!(
+        "cargo:rerun-if-changed={}/lean/lean.h",
+        include_dir.display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}/lean/config.h",
+        include_dir.display()
+    );
     println!("cargo:rerun-if-changed=build.rs");
 
     let lean_h = include_dir.join("lean/lean.h");
@@ -66,12 +72,16 @@ fn ensure_libclang() {
     };
     let stdout = String::from_utf8_lossy(&out.stdout);
     for line in stdout.lines() {
-        let Some(rest) = line.strip_prefix("programs:") else { continue };
+        let Some(rest) = line.strip_prefix("programs:") else {
+            continue;
+        };
         let rest = rest.trim_start().trim_start_matches('=');
         for path in rest.split(':') {
             let dir = Path::new(path.trim());
             if has_libclang(dir) {
-                unsafe { env::set_var("LIBCLANG_PATH", dir); }
+                unsafe {
+                    env::set_var("LIBCLANG_PATH", dir);
+                }
                 return;
             }
         }
@@ -79,10 +89,12 @@ fn ensure_libclang() {
 }
 
 fn has_libclang(dir: &Path) -> bool {
-    let Ok(entries) = dir.read_dir() else { return false };
+    let Ok(entries) = dir.read_dir() else {
+        return false;
+    };
     entries.flatten().any(|e| {
-        e.file_name()
-            .to_str()
-            .is_some_and(|n| n == "libclang.so" || n.starts_with("libclang.so.") || n.starts_with("libclang-"))
+        e.file_name().to_str().is_some_and(|n| {
+            n == "libclang.so" || n.starts_with("libclang.so.") || n.starts_with("libclang-")
+        })
     })
 }

@@ -1,0 +1,69 @@
+name: RIIR / Lean build with overrides
+
+# Builds Lean stage1 with LEAN_RUST_OVERRIDES=ON and verifies the resulting
+# binary works. Slow (~30+ min cold; minutes warm). Triggered manually and
+# weekly until the wrap-list grows real entries, at which point this should
+# also run per-push.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 03:00 UTC every Sunday
+    - cron: "0 3 * * 0"
+  push:
+    branches:
+      - riir
+    paths:
+      - "crates/lean-override/wrap-list.txt"
+      - "crates/lean-override/**"
+      - "src/CMakeLists.txt"
+      - ".github/workflows/riir-lean-build.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: stage1 + LEAN_RUST_OVERRIDES=ON
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake clang libclang-dev libgmp-dev libuv1-dev ccache
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/ccache
+            ~/.cargo/registry
+            ~/.cargo/git
+            build/release/stage0
+            build/release/rust-target
+          key: ${{ runner.os }}-riir-lean-${{ hashFiles('stage0/**', 'src/**/*.cpp', 'src/**/*.h', 'crates/**/*.rs', 'crates/**/build.rs', 'Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-riir-lean-
+
+      - name: Configure (LEAN_RUST_OVERRIDES=ON)
+        run: cmake -B build/release -S . -DCMAKE_BUILD_TYPE=Release -DLEAN_RUST_OVERRIDES=ON
+
+      - name: Build
+        run: make -j$(nproc) -C build/release
+        env:
+          CCACHE_DIR: ${{ github.workspace }}/.ccache
+
+      - name: Smoke-check lean binary
+        run: |
+          build/release/stage1/bin/lean --version
+          # Confirm the binary can elaborate a tiny program
+          echo '#eval 1 + 1' > /tmp/smoke.lean
+          build/release/stage1/bin/lean /tmp/smoke.lean

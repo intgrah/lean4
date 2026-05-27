@@ -17,7 +17,7 @@
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 
-use lean_runtime_sys::{lean_inc, lean_dec, lean_object};
+use lean_runtime_sys::{lean_dec, lean_inc, lean_object};
 
 /// Owned handle. Drops via `lean_dec`.
 #[repr(transparent)]
@@ -40,13 +40,18 @@ impl LeanObj {
     /// Borrow a handle to the underlying object without affecting the RC.
     #[inline]
     pub fn as_ref(&self) -> LeanObjRef<'_> {
-        LeanObjRef { ptr: self.ptr, _life: PhantomData }
+        LeanObjRef {
+            ptr: self.ptr,
+            _life: PhantomData,
+        }
     }
 
     /// Bump the RC and produce an owned clone.
     #[inline]
     pub fn clone_borrow(other: LeanObjRef<'_>) -> Self {
-        unsafe { lean_inc(other.ptr.as_ptr()); }
+        unsafe {
+            lean_inc(other.ptr.as_ptr());
+        }
         Self { ptr: other.ptr }
     }
 
@@ -69,7 +74,9 @@ impl LeanObj {
 impl Drop for LeanObj {
     #[inline]
     fn drop(&mut self) {
-        unsafe { lean_dec(self.ptr.as_ptr()); }
+        unsafe {
+            lean_dec(self.ptr.as_ptr());
+        }
     }
 }
 
@@ -95,7 +102,10 @@ impl<'a> LeanObjRef<'a> {
     /// `ptr` must be a valid `lean_object*` whose owner outlives `'a`.
     #[inline]
     pub unsafe fn from_borrowed(ptr: *mut lean_object) -> Option<Self> {
-        NonNull::new(ptr).map(|ptr| Self { ptr, _life: PhantomData })
+        NonNull::new(ptr).map(|ptr| Self {
+            ptr,
+            _life: PhantomData,
+        })
     }
 
     /// Raw pointer view; the RC is unaffected.

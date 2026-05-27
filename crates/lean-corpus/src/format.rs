@@ -37,12 +37,13 @@
 //! ## Field order within a Record
 //!
 //! Every Record must contain, in this order:
-//!   1. `INPUT`           the function's argument tuple, compact-region bytes
-//!   2. `STATE_IN`        Meta.State + Meta.Context + Core.State pre-call
-//!   3. `OUTPUT`          the function's return value, compact-region bytes
-//!   4. `STATE_OUT`       Meta.State + Core.State post-call
-//!   5. `MESSAGE_DELTA`   the MessageLog entries appended during the call
-//!                        (may be empty; the tag is always present for symmetry)
+//!
+//! 1. `INPUT`           the function's argument tuple, compact-region bytes
+//! 2. `STATE_IN`        Meta.State + Meta.Context + Core.State pre-call
+//! 3. `OUTPUT`          the function's return value, compact-region bytes
+//! 4. `STATE_OUT`       Meta.State + Core.State post-call
+//! 5. `MESSAGE_DELTA`   the MessageLog entries appended during the call
+//!    (may be empty; the tag is always present for symmetry)
 
 pub const MAGIC: u32 = u32::from_le_bytes(*b"LCRP");
 pub const RECORD_MARKER: u32 = u32::from_le_bytes(*b"REC1");
@@ -109,7 +110,11 @@ impl FileHeader {
         let flags = u16::from_le_bytes(bytes[6..8].try_into().unwrap());
         let mut pin_sha = [0u8; 20];
         pin_sha.copy_from_slice(&bytes[8..28]);
-        Ok(Self { version, flags, pin_sha })
+        Ok(Self {
+            version,
+            flags,
+            pin_sha,
+        })
     }
 }
 
@@ -127,10 +132,14 @@ impl std::fmt::Display for FormatError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::BadMagic { found } => write!(f, "bad file magic: {found:#x}"),
-            Self::UnsupportedVersion { found } => write!(f, "unsupported corpus format version: {found}"),
+            Self::UnsupportedVersion { found } => {
+                write!(f, "unsupported corpus format version: {found}")
+            }
             Self::BadRecordMarker { found } => write!(f, "bad record marker: {found:#x}"),
             Self::UnknownFieldTag { found } => write!(f, "unknown field tag: {found}"),
-            Self::UnexpectedFieldOrder { expected, found } => write!(f, "expected field {expected:?}, found {found:?}"),
+            Self::UnexpectedFieldOrder { expected, found } => {
+                write!(f, "expected field {expected:?}, found {found:?}")
+            }
             Self::Truncated => write!(f, "corpus file truncated"),
         }
     }
@@ -158,7 +167,10 @@ mod tests {
     fn rejects_bad_magic() {
         let mut bytes = [0u8; HEADER_LEN];
         bytes[0..4].copy_from_slice(b"XXXX");
-        assert!(matches!(FileHeader::decode(&bytes), Err(FormatError::BadMagic { .. })));
+        assert!(matches!(
+            FileHeader::decode(&bytes),
+            Err(FormatError::BadMagic { .. })
+        ));
     }
 
     #[test]
