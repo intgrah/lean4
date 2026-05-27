@@ -7,6 +7,12 @@ if(NOT DEFINED STAGE)
 endif()
 include(ExternalProject)
 project(LEAN CXX C)
+
+# RIIR: link a Rust override archive into libleanshared.so. The archive ships
+# __wrap_lean_xxx implementations for each symbol listed in
+# crates/lean-override/wrap-list.txt; the linker rewrites references via
+# -Wl,--wrap=. Default OFF; turning ON adds a cargo build step.
+option(LEAN_RUST_OVERRIDES "Link the RIIR Rust override archive into leanshared" OFF)
 set(LEAN_VERSION_MAJOR 4 CACHE STRING "")
 set(LEAN_VERSION_MINOR 31 CACHE STRING "")
 set(LEAN_VERSION_PATCH 0 CACHE STRING "")
@@ -1056,6 +1062,40 @@ else()
   # The build of stage2+ may depend on local changes made to src/ that are not reflected by the
   # commit hash in stage1/bin/lean, so we make sure to disable the global cache
   set(LAKE_ARTIFACT_CACHE_TOML "false")
+endif()
+
+# RIIR: build the Rust override archive and inject it (plus --wrap flags) into
+# the leanshared link line. No-op when LEAN_RUST_OVERRIDES is OFF, STAGE=0, or
+# the wrap-list contains no entries.
+if(LEAN_RUST_OVERRIDES AND STAGE GREATER 0)
+  file(READ "${LEAN_SOURCE_DIR}/crates/lean-override/wrap-list.txt" LEAN_RUST_WRAP_LIST_RAW)
+  string(REPLACE "\n" ";" LEAN_RUST_WRAP_LIST "${LEAN_RUST_WRAP_LIST_RAW}")
+  set(LEAN_RUST_WRAP_FLAGS "")
+  foreach(sym ${LEAN_RUST_WRAP_LIST})
+    string(STRIP "${sym}" sym)
+    if(sym AND NOT sym MATCHES "^#")
+      if(CMAKE_SYSTEM_NAME MATCHES "Darwin")
+        message(FATAL_ERROR "LEAN_RUST_OVERRIDES wrap-list is non-empty but --wrap is GNU ld only; macOS support is a TODO")
+      endif()
+      string(APPEND LEAN_RUST_WRAP_FLAGS " -Wl,--wrap=${sym}")
+    endif()
+  endforeach()
+  if(LEAN_RUST_WRAP_FLAGS)
+    find_program(CARGO cargo REQUIRED)
+    set(LEAN_RUST_TARGET_DIR "${CMAKE_BINARY_DIR}/rust-target")
+    set(LEAN_RUST_OVERRIDE_LIB "${LEAN_RUST_TARGET_DIR}/release/liblean_override.a")
+    add_custom_target(
+      lean-rust-override
+      ALL
+      WORKING_DIRECTORY ${LEAN_SOURCE_DIR}
+      COMMAND ${CMAKE_COMMAND} -E env "CARGO_TARGET_DIR=${LEAN_RUST_TARGET_DIR}"
+        ${CARGO} build --release -p lean-override
+      BYPRODUCTS ${LEAN_RUST_OVERRIDE_LIB}
+      VERBATIM
+    )
+    add_dependencies(leanshared lean-rust-override)
+    string(APPEND LEANSHARED_LINKER_FLAGS " ${LEAN_RUST_WRAP_FLAGS} ${LEAN_RUST_OVERRIDE_LIB}")
+  endif()
 endif()
 
 # Escape for `make`. Yes, twice.
