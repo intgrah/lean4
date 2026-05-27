@@ -1068,12 +1068,17 @@ endif()
 # the leanshared link line. No-op when LEAN_RUST_OVERRIDES is OFF, STAGE=0, or
 # the wrap-list contains no entries.
 if(LEAN_RUST_OVERRIDES AND STAGE GREATER 0)
-  file(READ "${LEAN_SOURCE_DIR}/crates/lean-override/wrap-list.txt" LEAN_RUST_WRAP_LIST_RAW)
-  string(REPLACE "\n" ";" LEAN_RUST_WRAP_LIST "${LEAN_RUST_WRAP_LIST_RAW}")
+  get_filename_component(LEAN_RUST_REPO_ROOT "${LEAN_SOURCE_DIR}/.." ABSOLUTE)
+  # Pick lines that start with an identifier character; this skips comments
+  # (starting with '#') and blanks. We deliberately filter before list-
+  # splitting because comment lines may contain ';', which CMake would
+  # otherwise interpret as a list separator.
+  file(STRINGS "${LEAN_RUST_REPO_ROOT}/crates/lean-override/wrap-list.txt"
+       LEAN_RUST_WRAP_LIST REGEX "^[A-Za-z_]")
   set(LEAN_RUST_WRAP_FLAGS "")
   foreach(sym ${LEAN_RUST_WRAP_LIST})
     string(STRIP "${sym}" sym)
-    if(sym AND NOT sym MATCHES "^#")
+    if(sym)
       if(CMAKE_SYSTEM_NAME MATCHES "Darwin")
         message(FATAL_ERROR "LEAN_RUST_OVERRIDES wrap-list is non-empty but --wrap is GNU ld only; macOS support is a TODO")
       endif()
@@ -1087,7 +1092,7 @@ if(LEAN_RUST_OVERRIDES AND STAGE GREATER 0)
     add_custom_target(
       lean-rust-override
       ALL
-      WORKING_DIRECTORY ${LEAN_SOURCE_DIR}
+      WORKING_DIRECTORY ${LEAN_RUST_REPO_ROOT}
       COMMAND ${CMAKE_COMMAND} -E env "CARGO_TARGET_DIR=${LEAN_RUST_TARGET_DIR}"
         ${CARGO} build --release -p lean-override
       BYPRODUCTS ${LEAN_RUST_OVERRIDE_LIB}
