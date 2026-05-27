@@ -7,6 +7,7 @@ license.workspace = true
 repository.workspace = true
 description = "Rust mirrors of Lean's Expr, Level, Name, LocalContext, MetavarContext with zero-copy conversion to lean_object*."
 publish = false
+build = "build.rs"
 
 [dependencies]
 lean-runtime-sys.workspace = true

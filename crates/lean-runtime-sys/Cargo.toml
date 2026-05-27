@@ -8,6 +8,7 @@ repository.workspace = true
 description = "Raw FFI bindings to the Lean 4 runtime (lean_object*, allocators, ctor accessors)."
 publish = false
 build = "build.rs"
+links = "lean_runtime_sys"
 
 [lib]
 

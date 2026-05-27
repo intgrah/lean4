@@ -12,8 +12,6 @@ The Lean source under `src/` at this SHA is the read-only specification. Advanci
 
 ## Layout
 
-- `Cargo.toml` (top level) — Cargo workspace manifest.
-- `crates/` — Rust crate sources, mirroring the Lean source tree.
-- `src/` — Lean source, unchanged from upstream. Read-only spec.
-
-See `/home/intgrah/.claude/plans/write-a-plan-kind-globe.md` for the full plan.
+- `Cargo.toml` at the repository root: Cargo workspace manifest.
+- `crates/`: Rust crate sources, mirroring the Lean source tree.
+- `src/`: Lean source, unchanged from upstream. Read-only spec.

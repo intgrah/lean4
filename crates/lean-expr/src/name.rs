@@ -1,18 +1,3 @@
-//! Rust mirror of Lean's `Name`.
-//!
-//! Lean source: `src/Init/Prelude.lean:4692` (the inductive) and
-//! `src/Lean/Data/Name.lean` (most helpers). C-ABI layout:
-//!
-//! * `Name.anonymous` is the scalar `lean_box(0)` (tag 0, no allocation).
-//! * `Name.str p s` is ctor tag 1, two object slots (parent: Name, sym:
-//!   String), plus a cached `UInt64` hash as a computed_field.
-//! * `Name.num p n` is ctor tag 2, two object slots (parent: Name, n:
-//!   Nat), plus a cached `UInt64` hash.
-//!
-//! Construction goes through Lean's existing C-ABI exports
-//! (`lean_name_mk_string`, `lean_name_mk_numeral`); equality and hash use
-//! the lean.h externs already present in [`lean_runtime_sys`].
-
 use lean_runtime_sys::{
     b_lean_obj_arg, lean_box, lean_ctor_get, lean_inc_ref, lean_name_eq, lean_name_hash,
     lean_obj_arg,
@@ -20,14 +5,11 @@ use lean_runtime_sys::{
 
 use crate::obj::{LeanObj, LeanObjRef};
 
-// Hand-written externs for Lean-side Name constructors. These are
-// `@[export]`ed from `src/Init/Prelude.lean` and so aren't in lean.h.
 unsafe extern "C" {
     fn lean_name_mk_string(parent: lean_obj_arg, sym: lean_obj_arg) -> lean_obj_arg;
     fn lean_name_mk_numeral(parent: lean_obj_arg, idx: lean_obj_arg) -> lean_obj_arg;
 }
 
-/// Owned Name handle.
 #[repr(transparent)]
 #[derive(Debug)]
 pub struct Name {
@@ -35,7 +17,6 @@ pub struct Name {
 }
 
 impl Name {
-    /// `Name.anonymous`.
     #[inline]
     pub fn anonymous() -> Self {
         unsafe {
@@ -46,11 +27,6 @@ impl Name {
         }
     }
 
-    /// `Name.str parent sym`. Bumps the parent's RC; takes ownership of
-    /// `sym` (a Lean `String` `lean_object*`).
-    ///
-    /// # Safety
-    /// `sym` must be a valid owned `lean_object*` for a Lean `String`.
     pub unsafe fn str_unchecked(parent: LeanObjRef<'_>, sym: lean_obj_arg) -> Self {
         unsafe {
             lean_inc_ref(parent.as_ptr());
@@ -61,11 +37,6 @@ impl Name {
         }
     }
 
-    /// `Name.num parent idx`. Bumps the parent's RC; takes ownership of
-    /// `idx` (a Lean `Nat`).
-    ///
-    /// # Safety
-    /// `idx` must be a valid owned `lean_object*` for a Lean `Nat`.
     pub unsafe fn num_unchecked(parent: LeanObjRef<'_>, idx: lean_obj_arg) -> Self {
         unsafe {
             lean_inc_ref(parent.as_ptr());
@@ -76,22 +47,16 @@ impl Name {
         }
     }
 
-    /// Wrap an existing owning `lean_object*` that is known to point at a `Name`.
-    ///
-    /// # Safety
-    /// `obj` must in fact be a `Name`.
     #[inline]
     pub unsafe fn from_obj(obj: LeanObj) -> Self {
         Self { obj }
     }
 
-    /// Underlying owned handle (consume).
     #[inline]
     pub fn into_obj(self) -> LeanObj {
         self.obj
     }
 
-    /// Borrowed view of the underlying object.
     #[inline]
     pub fn as_ref(&self) -> NameRef<'_> {
         NameRef {
@@ -117,29 +82,22 @@ impl PartialEq for Name {
 
 impl Eq for Name {}
 
-/// Borrowed view of a Name.
 #[derive(Copy, Clone)]
 pub struct NameRef<'a> {
     obj: LeanObjRef<'a>,
 }
 
 impl<'a> NameRef<'a> {
-    /// Wrap a borrowed pointer known to point at a `Name`.
-    ///
-    /// # Safety
-    /// `ptr` must be a valid `lean_object*` for a `Name` whose owner outlives `'a`.
     #[inline]
     pub unsafe fn from_borrowed(ptr: b_lean_obj_arg) -> Option<Self> {
         unsafe { LeanObjRef::from_borrowed(ptr).map(|obj| Self { obj }) }
     }
 
-    /// Raw view.
     #[inline]
     pub fn obj(self) -> LeanObjRef<'a> {
         self.obj
     }
 
-    /// Discriminate the variant by tag.
     pub fn kind(self) -> NameKind {
         if self.obj.is_scalar() {
             NameKind::Anonymous
@@ -152,9 +110,6 @@ impl<'a> NameRef<'a> {
         }
     }
 
-    /// The parent component of a `.str` or `.num` name, borrowed.
-    ///
-    /// Returns `None` for `.anonymous`.
     pub fn parent(self) -> Option<NameRef<'a>> {
         match self.kind() {
             NameKind::Anonymous => None,
@@ -164,7 +119,6 @@ impl<'a> NameRef<'a> {
         }
     }
 
-    /// Cached hash via `lean_name_hash` from lean.h.
     pub fn hash(self) -> u64 {
         unsafe { lean_name_hash(self.obj.as_ptr()) }
     }
@@ -185,8 +139,16 @@ pub enum NameKind {
     Num,
 }
 
-// Tests that actually instantiate a Name need libleanshared linkage
-// (lean_dec_ref, lean_name_eq, ...). That linkage isn't wired in
-// lean-runtime-sys yet, so runtime-touching tests live in a future
-// integration-test crate or behind a feature gated by libleanshared
-// availability.
+#[cfg(all(test, has_lean_runtime))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn anonymous_is_scalar() {
+        let n = Name::anonymous();
+        assert_eq!(n.as_ref().kind(), NameKind::Anonymous);
+        assert!(n.as_ref().obj().is_scalar());
+        assert_eq!(n, Name::anonymous());
+        assert!(n.as_ref().parent().is_none());
+    }
+}

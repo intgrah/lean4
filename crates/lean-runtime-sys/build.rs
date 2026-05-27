@@ -8,13 +8,6 @@ fn main() {
     let repo_root = manifest_dir.parent().unwrap().parent().unwrap();
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
-    // Include search:
-    //   1. $LEAN_INCLUDE_DIR (explicit override)
-    //   2. <repo>/build/release/stage0/include (CMake-produced; has live
-    //      config.h/version.h with the pinned version/git hash)
-    //   3. <repo>/src/include (source tree; lean.h is always present
-    //      here, but config.h/version.h aren't, so we synthesize them
-    //      into OUT_DIR and put OUT_DIR first on the include path)
     let primary_include = env::var("LEAN_INCLUDE_DIR")
         .ok()
         .filter(|s| !s.is_empty())
@@ -40,9 +33,6 @@ fn main() {
         lean_h.display()
     );
 
-    // If the chosen include dir lacks config.h or version.h, synthesize
-    // stand-ins in OUT_DIR. lean.h includes them via `#include <lean/...>`,
-    // so we drop the stubs into OUT_DIR/lean/.
     let stub_include = out_dir.join("stub-include");
     let mut clang_args: Vec<String> = vec![format!("-I{}", primary_include.display())];
     if !primary_include.join("lean/config.h").exists()
@@ -66,19 +56,12 @@ fn main() {
             .expect("write stub version.h");
         }
         if !primary_include.join("lean/config.h").exists() {
-            // Deliberately omit LEAN_MIMALLOC: the mimalloc inline path in
-            // lean.h calls mi_malloc_small / mi_free, which would force us
-            // to also stub <lean/mimalloc.h> with their declarations.
-            // Bindgen only needs to parse the headers, not link, so the
-            // non-mimalloc path is sufficient.
             fs::write(
                 stub_lean.join("config.h"),
                 "#pragma once\n#include <lean/version.h>\n#define LEAN_IS_STAGE0 1\n",
             )
             .expect("write stub config.h");
         }
-        // Stub include comes first so the synthesized headers shadow
-        // any missing real ones.
         clang_args.insert(0, format!("-I{}", stub_include.display()));
     }
 
@@ -117,6 +100,41 @@ fn main() {
         }
     }
     cc.compile("lean_inline_wrappers");
+
+    println!("cargo:rustc-check-cfg=cfg(has_lean_runtime)");
+    if let Some(lib_dir) = find_libleanshared(repo_root) {
+        println!("cargo:rustc-link-search=native={}", lib_dir.display());
+        println!("cargo:rustc-link-lib=dylib=leanshared");
+        for sibling in ["Init_shared", "leanshared_1", "leanshared_2"] {
+            if lib_dir.join(format!("lib{sibling}.so")).exists() {
+                println!("cargo:rustc-link-lib=dylib={sibling}");
+            }
+        }
+        println!("cargo:lean_lib_dir={}", lib_dir.display());
+        println!("cargo:rustc-cfg=has_lean_runtime");
+    }
+}
+
+fn find_libleanshared(repo_root: &Path) -> Option<PathBuf> {
+    println!("cargo:rerun-if-env-changed=LEAN_LIB_DIR");
+    if let Ok(dir) = env::var("LEAN_LIB_DIR")
+        && !dir.is_empty()
+    {
+        let p = PathBuf::from(&dir);
+        if p.join("libleanshared.so").exists() {
+            return Some(p);
+        }
+    }
+    for candidate in [
+        "build/release/stage1/lib/lean",
+        "build/release/stage2/lib/lean",
+    ] {
+        let p = repo_root.join(candidate);
+        if p.join("libleanshared.so").exists() {
+            return Some(p);
+        }
+    }
+    None
 }
 
 fn ensure_libclang() {

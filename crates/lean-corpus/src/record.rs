@@ -1,15 +1,7 @@
-//! Record encoder and decoder for corpus files.
-//!
-//! Records are framed as described in [`crate::format`]. This module only
-//! handles the framing; payloads are opaque byte buffers (whatever
-//! `CompactedRegion.save` produced on the Lean side).
-
 use std::io::{self, Read, Write};
 
 use crate::format::{FIELD_ORDER, FieldTag, FileHeader, FormatError, HEADER_LEN, RECORD_MARKER};
 
-/// In-memory record. Each field is the raw bytes of a compacted-region
-/// payload; this crate does not interpret them.
 #[derive(Debug, Eq, PartialEq, Default)]
 pub struct Record {
     pub input: Vec<u8>,
@@ -41,20 +33,16 @@ impl Record {
     }
 }
 
-/// Streaming writer. Construct with [`RecordWriter::create`], then call
-/// [`RecordWriter::push`] for each record.
 pub struct RecordWriter<W: Write> {
     inner: W,
 }
 
 impl<W: Write> RecordWriter<W> {
-    /// Write the file header and return a writer ready for records.
     pub fn create(mut inner: W, header: &FileHeader) -> io::Result<Self> {
         inner.write_all(&header.encode())?;
         Ok(Self { inner })
     }
 
-    /// Append a single record.
     pub fn push(&mut self, record: &Record) -> io::Result<()> {
         let total_len: u64 = FIELD_ORDER
             .iter()
@@ -72,22 +60,18 @@ impl<W: Write> RecordWriter<W> {
         Ok(())
     }
 
-    /// Flush and return the underlying writer.
     pub fn finish(mut self) -> io::Result<W> {
         self.inner.flush()?;
         Ok(self.inner)
     }
 }
 
-/// Streaming reader. Construct with [`RecordReader::open`], then iterate;
-/// each `next()` consumes the bytes for one record.
 pub struct RecordReader<R: Read> {
     inner: R,
     pub header: FileHeader,
 }
 
 impl<R: Read> RecordReader<R> {
-    /// Read the file header and return a reader positioned at the first record.
     pub fn open(mut inner: R) -> Result<Self, ReadError> {
         let mut header_bytes = [0u8; HEADER_LEN];
         inner.read_exact(&mut header_bytes).map_err(ReadError::io)?;
@@ -116,7 +100,7 @@ impl<R: Read> Iterator for RecordReader<R> {
         if let Err(e) = self.inner.read_exact(&mut total_len_bytes) {
             return Some(Err(ReadError::Io(e)));
         }
-        let _total_len = u64::from_le_bytes(total_len_bytes); // currently unused; reserved for skip
+        let _total_len = u64::from_le_bytes(total_len_bytes);
         let mut record = Record::default();
         for expected in FIELD_ORDER {
             let mut tag_bytes = [0u8; 4];
@@ -246,7 +230,6 @@ mod tests {
         let mut w = RecordWriter::create(&mut buf, &sample_header()).unwrap();
         w.push(&Record::default()).unwrap();
         w.finish().unwrap();
-        // Corrupt the marker of the first record (just after the 32-byte header)
         buf[HEADER_LEN] ^= 0xff;
         let mut r = RecordReader::open(&buf[..]).unwrap();
         match r.next().unwrap() {

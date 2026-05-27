@@ -1,14 +1,8 @@
 name: RIIR / Lean build with overrides
 
-# Builds Lean stage1 with LEAN_RUST_OVERRIDES=ON and verifies the resulting
-# binary works. Slow (~30+ min cold; minutes warm). Triggered manually and
-# weekly until the wrap-list grows real entries, at which point this should
-# also run per-push.
-
 on:
   workflow_dispatch:
   schedule:
-    # 03:00 UTC every Sunday
     - cron: "0 3 * * 0"
   push:
     branches:
@@ -64,6 +58,5 @@ jobs:
       - name: Smoke-check lean binary
         run: |
           build/release/stage1/bin/lean --version
-          # Confirm the binary can elaborate a tiny program
           echo '#eval 1 + 1' > /tmp/smoke.lean
           build/release/stage1/bin/lean /tmp/smoke.lean

@@ -8,10 +8,6 @@ endif()
 include(ExternalProject)
 project(LEAN CXX C)
 
-# RIIR: link a Rust override archive into libleanshared.so. The archive ships
-# __wrap_lean_xxx implementations for each symbol listed in
-# crates/lean-override/wrap-list.txt; the linker rewrites references via
-# -Wl,--wrap=. Default OFF; turning ON adds a cargo build step.
 option(LEAN_RUST_OVERRIDES "Link the RIIR Rust override archive into leanshared" OFF)
 set(LEAN_VERSION_MAJOR 4 CACHE STRING "")
 set(LEAN_VERSION_MINOR 31 CACHE STRING "")
@@ -1064,15 +1060,8 @@ else()
   set(LAKE_ARTIFACT_CACHE_TOML "false")
 endif()
 
-# RIIR: build the Rust override archive and inject it (plus --wrap flags) into
-# the leanshared link line. No-op when LEAN_RUST_OVERRIDES is OFF, STAGE=0, or
-# the wrap-list contains no entries.
 if(LEAN_RUST_OVERRIDES AND STAGE GREATER 0)
   get_filename_component(LEAN_RUST_REPO_ROOT "${LEAN_SOURCE_DIR}/.." ABSOLUTE)
-  # Pick lines that start with an identifier character; this skips comments
-  # (starting with '#') and blanks. We deliberately filter before list-
-  # splitting because comment lines may contain ';', which CMake would
-  # otherwise interpret as a list separator.
   file(STRINGS "${LEAN_RUST_REPO_ROOT}/crates/lean-override/wrap-list.txt"
        LEAN_RUST_WRAP_LIST REGEX "^[A-Za-z_]")
   set(LEAN_RUST_WRAP_FLAGS "")

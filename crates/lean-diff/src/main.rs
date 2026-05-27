@@ -1,13 +1,3 @@
-//! Differential test runner.
-//!
-//! Reads a per-function corpus file (`<function-fqn>.bin`) produced by the
-//! instrumented Lean build, replays each record against the Rust
-//! implementation of that function, and reports the first divergence.
-//!
-//! Today this scaffold only walks the corpus and validates framing; the
-//! payload-load + dispatch + compare path is added in a follow-up alongside
-//! the first registered Rust impl.
-
 use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
@@ -103,9 +93,6 @@ fn main() -> ExitCode {
         match record {
             Ok(_r) => {
                 count += 1;
-                // TODO(phase-1): once the dispatch table has a Rust impl
-                // for this function, load _r's payloads via
-                // lean_compacted_region_read and compare result + state-out.
                 if args.limit.is_some_and(|n| count >= n) {
                     break;
                 }

@@ -24,11 +24,6 @@ jobs:
       - name: Install clang + libclang for bindgen
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
 
-      # No Lean build here: lean-runtime-sys/build.rs falls back to
-      # src/include/lean/lean.h and synthesizes stub config.h/version.h/mimalloc.h
-      # into OUT_DIR when CMake-generated copies aren't present. The
-      # full LEAN_RUST_OVERRIDES=ON path is exercised by riir-lean-build.
-
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
