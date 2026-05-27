@@ -7,6 +7,9 @@ license.workspace = true
 repository.workspace = true
 description = "Single C-ABI surface. Re-exports overrideable lean_xxx symbols backed by Rust impls in per-subsystem crates."
 publish = false
+autotests = false
+autobenches = false
+autoexamples = false
 
 [dependencies]
 lean-runtime-sys.workspace = true
@@ -15,3 +18,5 @@ lean-parser.workspace = true
 
 [lib]
 crate-type = ["staticlib", "rlib"]
+test = false
+doctest = false

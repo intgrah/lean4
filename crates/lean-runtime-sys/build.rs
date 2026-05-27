@@ -110,6 +110,7 @@ fn main() {
                 println!("cargo:rustc-link-lib=dylib={sibling}");
             }
         }
+        println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir.display());
         println!("cargo:lean_lib_dir={}", lib_dir.display());
         println!("cargo:rustc-cfg=has_lean_runtime");
     }
