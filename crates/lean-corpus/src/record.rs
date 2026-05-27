@@ -225,6 +225,49 @@ mod tests {
     }
 
     #[test]
+    fn file_roundtrip_buffered_io() {
+        let recs: Vec<Record> = (0..16u32)
+            .map(|i| Record {
+                input: i.to_le_bytes().to_vec(),
+                state_in: vec![i as u8; 13],
+                output: vec![(i * 3) as u8; 5],
+                state_out: vec![(i ^ 0xa5) as u8; 9],
+                message_delta: if i % 4 == 0 { vec![0x55; 3] } else { vec![] },
+            })
+            .collect();
+
+        let mut path = std::env::temp_dir();
+        path.push(format!("lean-corpus-roundtrip-{}.bin", std::process::id()));
+        let _cleanup = scopeguard(&path);
+
+        {
+            let file = std::fs::File::create(&path).unwrap();
+            let mut w =
+                RecordWriter::create(std::io::BufWriter::new(file), &sample_header()).unwrap();
+            for r in &recs {
+                w.push(r).unwrap();
+            }
+            w.finish().unwrap();
+        }
+
+        let file = std::fs::File::open(&path).unwrap();
+        let reader = RecordReader::open(std::io::BufReader::new(file)).unwrap();
+        assert_eq!(reader.header, sample_header());
+        let got: Vec<Record> = reader.map(|r| r.unwrap()).collect();
+        assert_eq!(got, recs);
+    }
+
+    struct Cleanup<'a>(&'a std::path::Path);
+    impl Drop for Cleanup<'_> {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(self.0);
+        }
+    }
+    fn scopeguard(p: &std::path::Path) -> Cleanup<'_> {
+        Cleanup(p)
+    }
+
+    #[test]
     fn rejects_bad_marker() {
         let mut buf = Vec::new();
         let mut w = RecordWriter::create(&mut buf, &sample_header()).unwrap();
