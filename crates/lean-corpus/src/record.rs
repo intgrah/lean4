@@ -43,6 +43,10 @@ impl<W: Write> RecordWriter<W> {
         Ok(Self { inner })
     }
 
+    pub fn append(inner: W) -> Self {
+        Self { inner }
+    }
+
     pub fn push(&mut self, record: &Record) -> io::Result<()> {
         let total_len: u64 = FIELD_ORDER
             .iter()
