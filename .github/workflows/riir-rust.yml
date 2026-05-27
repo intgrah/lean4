@@ -24,33 +24,10 @@ jobs:
       - name: Install clang + libclang for bindgen
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
 
-      - name: Stub Lean headers for bindgen
-        # The Rust workspace's lean-runtime-sys/build.rs expects generated
-        # headers at build/release/stage0/include/lean/{config,version}.h.
-        # Running CMake here would build all of Lean (~30+ min); the rust-only
-        # CI path instead synthesizes minimal stand-ins so bindgen can parse
-        # src/include/lean/lean.h without a Lean build. The full LEAN_RUST_OVERRIDES=ON
-        # build is exercised by the separate riir-lean-build workflow.
-        run: |
-          mkdir -p build/release/stage0/include/lean
-          cat > build/release/stage0/include/lean/config.h <<'EOF'
-          #pragma once
-          #include <lean/version.h>
-          #define LEAN_MIMALLOC
-          #define LEAN_IS_STAGE0 1
-          EOF
-          cat > build/release/stage0/include/lean/version.h <<'EOF'
-          #pragma once
-          #define LEAN_VERSION_MAJOR 4
-          #define LEAN_VERSION_MINOR 31
-          #define LEAN_VERSION_PATCH 0
-          #define LEAN_VERSION_IS_RELEASE 0
-          #define LEAN_SPECIAL_VERSION_DESC ""
-          #define LEAN_VERSION_STRING "4.31.0-pre"
-          #define LEAN_PLATFORM_TARGET "x86_64-unknown-linux-gnu"
-          #define LEAN_MANUAL_ROOT ""
-          EOF
-          touch build/release/stage0/include/lean/mimalloc.h
+      # No Lean build here: lean-runtime-sys/build.rs falls back to
+      # src/include/lean/lean.h and synthesizes stub config.h/version.h/mimalloc.h
+      # into OUT_DIR when CMake-generated copies aren't present. The
+      # full LEAN_RUST_OVERRIDES=ON path is exercised by riir-lean-build.
 
       - uses: dtolnay/rust-toolchain@stable
         with:

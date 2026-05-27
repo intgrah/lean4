@@ -1,42 +1,92 @@
 use std::env;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let repo_root = manifest_dir.parent().unwrap().parent().unwrap();
+    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
-    let include_dir = env::var("LEAN_INCLUDE_DIR")
+    // Include search:
+    //   1. $LEAN_INCLUDE_DIR (explicit override)
+    //   2. <repo>/build/release/stage0/include (CMake-produced; has live
+    //      config.h/version.h with the pinned version/git hash)
+    //   3. <repo>/src/include (source tree; lean.h is always present
+    //      here, but config.h/version.h aren't, so we synthesize them
+    //      into OUT_DIR and put OUT_DIR first on the include path)
+    let primary_include = env::var("LEAN_INCLUDE_DIR")
+        .ok()
+        .filter(|s| !s.is_empty())
         .map(PathBuf::from)
-        .unwrap_or_else(|_| repo_root.join("build/release/stage0/include"));
+        .or_else(|| {
+            let cmake = repo_root.join("build/release/stage0/include");
+            cmake.join("lean/lean.h").exists().then_some(cmake)
+        })
+        .unwrap_or_else(|| repo_root.join("src/include"));
 
     println!("cargo:rerun-if-env-changed=LEAN_INCLUDE_DIR");
     println!("cargo:rerun-if-env-changed=LIBCLANG_PATH");
     println!(
         "cargo:rerun-if-changed={}/lean/lean.h",
-        include_dir.display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}/lean/config.h",
-        include_dir.display()
+        primary_include.display()
     );
     println!("cargo:rerun-if-changed=build.rs");
 
-    let lean_h = include_dir.join("lean/lean.h");
+    let lean_h = primary_include.join("lean/lean.h");
     assert!(
         lean_h.exists(),
-        "lean.h not found at {}; set LEAN_INCLUDE_DIR or run CMake configure to populate build/release/stage0/include",
+        "lean.h not found at {}; set LEAN_INCLUDE_DIR or check src/include/lean/lean.h",
         lean_h.display()
     );
 
+    // If the chosen include dir lacks config.h or version.h, synthesize
+    // stand-ins in OUT_DIR. lean.h includes them via `#include <lean/...>`,
+    // so we drop the stubs into OUT_DIR/lean/.
+    let stub_include = out_dir.join("stub-include");
+    let mut clang_args: Vec<String> = vec![format!("-I{}", primary_include.display())];
+    if !primary_include.join("lean/config.h").exists()
+        || !primary_include.join("lean/version.h").exists()
+    {
+        let stub_lean = stub_include.join("lean");
+        fs::create_dir_all(&stub_lean).expect("create stub include dir");
+        if !primary_include.join("lean/version.h").exists() {
+            fs::write(
+                stub_lean.join("version.h"),
+                "#pragma once\n\
+                 #define LEAN_VERSION_MAJOR 4\n\
+                 #define LEAN_VERSION_MINOR 31\n\
+                 #define LEAN_VERSION_PATCH 0\n\
+                 #define LEAN_VERSION_IS_RELEASE 0\n\
+                 #define LEAN_SPECIAL_VERSION_DESC \"\"\n\
+                 #define LEAN_VERSION_STRING \"4.31.0-pre\"\n\
+                 #define LEAN_PLATFORM_TARGET \"\"\n\
+                 #define LEAN_MANUAL_ROOT \"\"\n",
+            )
+            .expect("write stub version.h");
+        }
+        if !primary_include.join("lean/config.h").exists() {
+            // Deliberately omit LEAN_MIMALLOC: the mimalloc inline path in
+            // lean.h calls mi_malloc_small / mi_free, which would force us
+            // to also stub <lean/mimalloc.h> with their declarations.
+            // Bindgen only needs to parse the headers, not link, so the
+            // non-mimalloc path is sufficient.
+            fs::write(
+                stub_lean.join("config.h"),
+                "#pragma once\n#include <lean/version.h>\n#define LEAN_IS_STAGE0 1\n",
+            )
+            .expect("write stub config.h");
+        }
+        // Stub include comes first so the synthesized headers shadow
+        // any missing real ones.
+        clang_args.insert(0, format!("-I{}", stub_include.display()));
+    }
+
     ensure_libclang();
 
-    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let extern_c = out_dir.join("extern.c");
-
-    let bindings = bindgen::Builder::default()
+    let mut builder = bindgen::Builder::default()
         .header(lean_h.to_string_lossy())
-        .clang_arg(format!("-I{}", include_dir.display()))
         .allowlist_function("lean_.*")
         .allowlist_type("lean_.*")
         .allowlist_var("LEAN_.*")
@@ -46,21 +96,27 @@ fn main() {
         .layout_tests(false)
         .generate_comments(false)
         .wrap_static_fns(true)
-        .wrap_static_fns_path(&extern_c)
-        .generate()
-        .expect("bindgen failed for lean.h");
+        .wrap_static_fns_path(&extern_c);
+    for arg in &clang_args {
+        builder = builder.clang_arg(arg);
+    }
+    let bindings = builder.generate().expect("bindgen failed for lean.h");
 
     bindings
         .write_to_file(out_dir.join("bindings.rs"))
         .expect("failed to write bindings.rs");
 
-    cc::Build::new()
-        .file(&extern_c)
-        .include(&include_dir)
+    let mut cc = cc::Build::new();
+    cc.file(&extern_c)
         .flag_if_supported("-Wno-unused-parameter")
         .flag_if_supported("-Wno-unused-function")
-        .flag_if_supported("-Wno-incompatible-pointer-types")
-        .compile("lean_inline_wrappers");
+        .flag_if_supported("-Wno-incompatible-pointer-types");
+    for arg in &clang_args {
+        if let Some(dir) = arg.strip_prefix("-I") {
+            cc.include(dir);
+        }
+    }
+    cc.compile("lean_inline_wrappers");
 }
 
 fn ensure_libclang() {
