@@ -234,7 +234,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "needs full Lean module init (alloc, object, io, libuv) before lean_level_mk_succ allocates"]
+    #[ignore = "lean_level_mk_succ segfaults even after initialize_Lean_Level(1); investigation deferred"]
     fn succ_dispatch() {
         let z = Level::zero();
         let s = Level::succ(z.as_ref());
@@ -246,7 +246,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "needs full Lean module init"]
+    #[ignore = "needs runtime init resolution; see succ_dispatch"]
     fn param_carries_name() {
         let n = crate::name::Name::anonymous();
         let p = Level::param(n.as_ref());

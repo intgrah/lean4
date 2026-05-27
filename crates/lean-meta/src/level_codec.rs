@@ -77,7 +77,7 @@ pub fn encode_name(n: NameRef<'_>, out: &mut Vec<u8>) -> Result<(), EncodeError>
 #[cfg(all(test, has_lean_runtime))]
 mod tests {
     use super::*;
-    use lean_expr::Level;
+    use lean_expr::{Level, Name};
 
     #[test]
     fn encode_level_zero() {
@@ -85,5 +85,13 @@ mod tests {
         let mut out = Vec::new();
         encode_level(z.as_ref(), &mut out).unwrap();
         assert_eq!(out, vec![TAG_ZERO]);
+    }
+
+    #[test]
+    fn encode_name_anonymous() {
+        let n = Name::anonymous();
+        let mut out = Vec::new();
+        encode_name(n.as_ref(), &mut out).unwrap();
+        assert_eq!(out, vec![NAME_ANONYMOUS]);
     }
 }
