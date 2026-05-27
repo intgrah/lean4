@@ -10,8 +10,10 @@
 //! `lean_object*` graph as produced by `CompactedRegion.save`; this crate
 //! is responsible only for the framing around those payloads.
 
+pub mod compact;
 pub mod format;
 pub mod record;
 
+pub use compact::{LeanCompactedRegion, Region};
 pub use format::{FORMAT_VERSION, FieldTag, FileHeader, FormatError};
 pub use record::{ReadError, Record, RecordReader, RecordWriter};
