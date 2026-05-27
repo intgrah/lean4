@@ -11,6 +11,9 @@ on:
       - "crates/lean-override/wrap-list.txt"
       - "crates/lean-override/**"
       - "src/CMakeLists.txt"
+      - "src/Lean/**"
+      - "src/Init/**"
+      - "src/Std/**"
       - ".github/workflows/riir-lean-build.yml"
 
 concurrency:
