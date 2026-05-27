@@ -1,0 +1,16 @@
+[package]
+name = "lean-meta"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Pass-A ports of Lean.Meta.* functions (whnf, isDefEq, inferType, synthInstance, ...)."
+publish = false
+
+[dependencies]
+lean-runtime-sys.workspace = true
+lean-expr.workspace = true
+lean-corpus.workspace = true
+
+[lib]

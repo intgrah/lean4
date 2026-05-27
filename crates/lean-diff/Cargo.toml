@@ -1,0 +1,20 @@
+[package]
+name = "lean-diff"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Differential test runner. Replays per-function corpora against Rust impls and reports the first divergence."
+publish = false
+
+[dependencies]
+lean-runtime-sys.workspace = true
+lean-expr.workspace = true
+lean-corpus.workspace = true
+lean-meta.workspace = true
+lean-parser.workspace = true
+
+[[bin]]
+name = "lean-diff"
+path = "src/main.rs"

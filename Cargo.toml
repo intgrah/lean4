@@ -1,0 +1,29 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/lean-runtime-sys",
+    "crates/lean-expr",
+    "crates/lean-corpus",
+    "crates/lean-meta",
+    "crates/lean-parser",
+    "crates/lean-diff",
+    "crates/lean-override",
+]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.95"
+license = "Apache-2.0"
+repository = "https://github.com/leanprover/lean4"
+
+[workspace.dependencies]
+lean-runtime-sys = { path = "crates/lean-runtime-sys" }
+lean-expr = { path = "crates/lean-expr" }
+lean-corpus = { path = "crates/lean-corpus" }
+lean-meta = { path = "crates/lean-meta" }
+lean-parser = { path = "crates/lean-parser" }
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+debug = "line-tables-only"
