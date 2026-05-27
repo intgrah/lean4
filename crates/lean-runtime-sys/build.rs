@@ -25,6 +25,9 @@ fn main() {
 
     ensure_libclang();
 
+    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+    let extern_c = out_dir.join("extern.c");
+
     let bindings = bindgen::Builder::default()
         .header(lean_h.to_string_lossy())
         .clang_arg(format!("-I{}", include_dir.display()))
@@ -37,13 +40,23 @@ fn main() {
         .prepend_enum_name(false)
         .layout_tests(false)
         .generate_comments(false)
+        .wrap_static_fns(true)
+        .wrap_static_fns_path(&extern_c)
         .generate()
         .expect("bindgen failed for lean.h");
 
-    let out_path = PathBuf::from(env::var("OUT_DIR").unwrap()).join("bindings.rs");
     bindings
-        .write_to_file(&out_path)
+        .write_to_file(out_dir.join("bindings.rs"))
         .expect("failed to write bindings.rs");
+
+    cc::Build::new()
+        .file(&extern_c)
+        .include(&include_dir)
+        .define("LEAN_MIMALLOC", None)
+        .flag_if_supported("-Wno-unused-parameter")
+        .flag_if_supported("-Wno-unused-function")
+        .flag_if_supported("-Wno-incompatible-pointer-types")
+        .compile("lean_inline_wrappers");
 }
 
 fn ensure_libclang() {
