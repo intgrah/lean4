@@ -52,16 +52,15 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-riir-cpp-
 
-      - name: Cache Rust toolchain + override target
+      - name: Cache cargo registry (deps only; not the target dir)
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            build/release/rust-target
-          key: ${{ runner.os }}-riir-rust-${{ hashFiles('Cargo.lock', 'crates/**/Cargo.toml', 'crates/**/build.rs', 'crates/**/*.rs') }}
+          key: ${{ runner.os }}-riir-cargo-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-riir-rust-
+            ${{ runner.os }}-riir-cargo-
 
       - name: Cache stage1 Lean artifacts
         uses: actions/cache@v4
