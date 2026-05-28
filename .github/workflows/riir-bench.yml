@@ -37,6 +37,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake clang libclang-dev libgmp-dev libuv1-dev ccache jq
 
+      - name: Open perf counters for measure.py
+        run: sudo sysctl -w kernel.perf_event_paranoid=1
+
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Cache C/C++ compile artifacts (ccache + stage0)
