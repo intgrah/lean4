@@ -19,13 +19,17 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
     name: stage1 + LEAN_RUST_OVERRIDES=ON
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 2G
+      CCACHE_COMPRESS: "true"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,26 +42,46 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Restore caches
+      - name: Cache C/C++ compile artifacts (ccache + stage0)
         uses: actions/cache@v4
         with:
           path: |
-            ~/.cache/ccache
+            ${{ github.workspace }}/.ccache
+            build/release/stage0
+          key: ${{ runner.os }}-riir-cpp-${{ hashFiles('stage0/**', 'src/**/*.cpp', 'src/**/*.h', 'src/CMakeLists.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-riir-cpp-
+
+      - name: Cache Rust toolchain + override target
+        uses: actions/cache@v4
+        with:
+          path: |
             ~/.cargo/registry
             ~/.cargo/git
-            build/release/stage0
             build/release/rust-target
-          key: ${{ runner.os }}-riir-lean-${{ hashFiles('stage0/**', 'src/**/*.cpp', 'src/**/*.h', 'crates/**/*.rs', 'crates/**/build.rs', 'Cargo.lock') }}
+          key: ${{ runner.os }}-riir-rust-${{ hashFiles('Cargo.lock', 'crates/**/Cargo.toml', 'crates/**/build.rs', 'crates/**/*.rs') }}
           restore-keys: |
-            ${{ runner.os }}-riir-lean-
+            ${{ runner.os }}-riir-rust-
+
+      - name: Cache stage1 Lean artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/release/stage1/lib/lean
+            build/release/stage1/lib/temp
+          key: ${{ runner.os }}-riir-stage1-${{ hashFiles('src/Lean/**/*.lean', 'src/Init/**/*.lean', 'src/Std/**/*.lean') }}
+          restore-keys: |
+            ${{ runner.os }}-riir-stage1-
 
       - name: Configure (LEAN_RUST_OVERRIDES=ON)
         run: cmake -B build/release -S . -DCMAKE_BUILD_TYPE=Release -DLEAN_RUST_OVERRIDES=ON
 
       - name: Build
         run: make -j$(nproc) -C build/release
-        env:
-          CCACHE_DIR: ${{ github.workspace }}/.ccache
+
+      - name: ccache stats
+        if: always()
+        run: ccache -s
 
       - name: Smoke-check lean binary
         run: |
