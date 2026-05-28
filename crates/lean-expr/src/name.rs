@@ -1,5 +1,5 @@
 use lean_runtime_sys::{
-    b_lean_obj_arg, lean_box, lean_ctor_get, lean_inc_ref, lean_is_scalar, lean_name_eq,
+    b_lean_obj_arg, lean_box, lean_ctor_get, lean_inc, lean_is_scalar, lean_name_eq,
     lean_name_hash, lean_obj_arg, lean_string_byte_size, lean_string_cstr, lean_unbox,
 };
 
@@ -29,7 +29,7 @@ impl Name {
 
     pub unsafe fn str_unchecked(parent: LeanObjRef<'_>, sym: lean_obj_arg) -> Self {
         unsafe {
-            lean_inc_ref(parent.as_ptr());
+            lean_inc(parent.as_ptr());
             let ptr = lean_name_mk_string(parent.as_ptr(), sym);
             Self {
                 obj: LeanObj::from_owned(ptr).expect("lean_name_mk_string returned null"),
@@ -39,7 +39,7 @@ impl Name {
 
     pub unsafe fn num_unchecked(parent: LeanObjRef<'_>, idx: lean_obj_arg) -> Self {
         unsafe {
-            lean_inc_ref(parent.as_ptr());
+            lean_inc(parent.as_ptr());
             let ptr = lean_name_mk_numeral(parent.as_ptr(), idx);
             Self {
                 obj: LeanObj::from_owned(ptr).expect("lean_name_mk_numeral returned null"),

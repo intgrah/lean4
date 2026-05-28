@@ -1,4 +1,4 @@
-use lean_runtime_sys::{b_lean_obj_arg, lean_box, lean_ctor_get, lean_inc_ref, lean_obj_arg};
+use lean_runtime_sys::{b_lean_obj_arg, lean_box, lean_ctor_get, lean_inc, lean_obj_arg};
 
 use crate::name::NameRef;
 use crate::obj::{LeanObj, LeanObjRef};
@@ -34,7 +34,7 @@ impl Level {
 
     pub fn succ(u: LevelRef<'_>) -> Self {
         unsafe {
-            lean_inc_ref(u.obj.as_ptr());
+            lean_inc(u.obj.as_ptr());
             let ptr = lean_level_mk_succ(u.obj.as_ptr());
             Self {
                 obj: LeanObj::from_owned(ptr).expect("lean_level_mk_succ returned null"),
@@ -44,8 +44,8 @@ impl Level {
 
     pub fn max(u: LevelRef<'_>, v: LevelRef<'_>) -> Self {
         unsafe {
-            lean_inc_ref(u.obj.as_ptr());
-            lean_inc_ref(v.obj.as_ptr());
+            lean_inc(u.obj.as_ptr());
+            lean_inc(v.obj.as_ptr());
             let ptr = lean_level_mk_max(u.obj.as_ptr(), v.obj.as_ptr());
             Self {
                 obj: LeanObj::from_owned(ptr).expect("lean_level_mk_max returned null"),
@@ -55,8 +55,8 @@ impl Level {
 
     pub fn imax(u: LevelRef<'_>, v: LevelRef<'_>) -> Self {
         unsafe {
-            lean_inc_ref(u.obj.as_ptr());
-            lean_inc_ref(v.obj.as_ptr());
+            lean_inc(u.obj.as_ptr());
+            lean_inc(v.obj.as_ptr());
             let ptr = lean_level_mk_imax(u.obj.as_ptr(), v.obj.as_ptr());
             Self {
                 obj: LeanObj::from_owned(ptr).expect("lean_level_mk_imax returned null"),
@@ -66,7 +66,7 @@ impl Level {
 
     pub fn param(name: NameRef<'_>) -> Self {
         unsafe {
-            lean_inc_ref(name.obj().as_ptr());
+            lean_inc(name.obj().as_ptr());
             let ptr = lean_level_mk_param(name.obj().as_ptr());
             Self {
                 obj: LeanObj::from_owned(ptr).expect("lean_level_mk_param returned null"),
@@ -76,7 +76,7 @@ impl Level {
 
     pub fn mvar(id: LMVarIdRef<'_>) -> Self {
         unsafe {
-            lean_inc_ref(id.name().obj().as_ptr());
+            lean_inc(id.name().obj().as_ptr());
             let ptr = lean_level_mk_mvar(id.name().obj().as_ptr());
             Self {
                 obj: LeanObj::from_owned(ptr).expect("lean_level_mk_mvar returned null"),
