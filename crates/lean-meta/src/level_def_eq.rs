@@ -7,7 +7,7 @@ use lean_corpus::{FORMAT_VERSION, FileHeader, Record, RecordWriter};
 use lean_expr::LevelRef;
 use lean_runtime_sys::{lean_box, lean_dec, lean_inc, lean_io_result_mk_ok, lean_object};
 
-use crate::level_codec::encode_level;
+use crate::level_codec::{decoded_level_of_ref, encode_level};
 
 unsafe extern "C" {
     fn __real_lean_is_level_def_eq(
@@ -58,13 +58,8 @@ pub unsafe fn is_level_def_eq(
                     lean_io_result_mk_ok(lean_box(eq as usize))
                 }
             } else {
-                let mut su = String::new();
-                let mut sv = String::new();
-                unsafe {
-                    diag_walk_level(lhs, &mut su);
-                    diag_walk_level(rhs, &mut sv);
-                }
-                eprintln!("RIIR-DIAG mvar-free: u={su} v={sv}");
+                let _ = decoded_level_of_ref(u);
+                let _ = decoded_level_of_ref(v);
                 fall_through()
             }
         }
@@ -74,37 +69,6 @@ pub unsafe fn is_level_def_eq(
 fn riir_disabled() -> bool {
     static DISABLED: OnceLock<bool> = OnceLock::new();
     *DISABLED.get_or_init(|| std::env::var_os("LEAN_RIIR_DISABLE").is_some())
-}
-
-unsafe fn diag_walk_level(ptr: *mut lean_object, out: &mut String) {
-    use lean_runtime_sys::{lean_ctor_get, lean_is_scalar, lean_obj_tag};
-    if unsafe { lean_is_scalar(ptr) } != 0 {
-        out.push('Z');
-        return;
-    }
-    match unsafe { lean_obj_tag(ptr) } {
-        1 => {
-            out.push('S');
-            unsafe { diag_walk_level(lean_ctor_get(ptr, 0), out) };
-        }
-        2 => {
-            out.push_str("M(");
-            unsafe { diag_walk_level(lean_ctor_get(ptr, 0), out) };
-            out.push(',');
-            unsafe { diag_walk_level(lean_ctor_get(ptr, 1), out) };
-            out.push(')');
-        }
-        3 => {
-            out.push_str("I(");
-            unsafe { diag_walk_level(lean_ctor_get(ptr, 0), out) };
-            out.push(',');
-            unsafe { diag_walk_level(lean_ctor_get(ptr, 1), out) };
-            out.push(')');
-        }
-        4 => out.push('P'),
-        5 => out.push('V'),
-        t => out.push_str(&format!("T{t}!")),
-    }
 }
 
 struct Capture {
