@@ -1,6 +1,6 @@
 use lean_runtime_sys::{
     b_lean_obj_arg, lean_box, lean_ctor_get, lean_inc, lean_is_scalar, lean_name_eq,
-    lean_name_hash, lean_obj_arg, lean_string_byte_size, lean_string_cstr, lean_unbox,
+    lean_name_hash, lean_obj_arg, lean_string_cstr, lean_string_size, lean_unbox,
 };
 
 use crate::obj::{LeanObj, LeanObjRef};
@@ -129,8 +129,7 @@ impl<'a> NameRef<'a> {
         }
         unsafe {
             let s = lean_ctor_get(self.obj.as_ptr(), 1);
-            let bytes = lean_string_byte_size(s);
-            let len = bytes.saturating_sub(1);
+            let len = lean_string_size(s).saturating_sub(1);
             let ptr = lean_string_cstr(s) as *const u8;
             Some(core::slice::from_raw_parts(ptr, len))
         }

@@ -51,50 +51,102 @@ pub fn build_name(d: &DecodedName) -> Name {
 #[cfg(all(test, has_lean_runtime))]
 mod tests {
     use super::*;
-    use crate::level_codec::{encode_level, encode_name};
+    use crate::level_codec::{decode_level, decode_name, encode_level, encode_name};
 
-    #[test]
-    fn build_zero_roundtrip() {
-        let lvl = build_level(&DecodedLevel::Zero);
-        let mut out = Vec::new();
-        encode_level(lvl.as_ref(), &mut out).unwrap();
-        assert_eq!(out, vec![crate::level_codec::TAG_ZERO]);
+    fn init_runtime() {
+        use std::sync::Once;
+        static INIT: Once = Once::new();
+        INIT.call_once(|| unsafe {
+            unsafe extern "C" {
+                fn lean_initialize_runtime_module();
+            }
+            lean_initialize_runtime_module();
+            lean_runtime_sys::lean_io_mark_end_initialization();
+        });
     }
 
-    #[test]
-    fn build_anonymous_name_roundtrip() {
-        let n = build_name(&DecodedName::Anonymous);
-        let mut out = Vec::new();
-        encode_name(n.as_ref(), &mut out).unwrap();
-        assert_eq!(out, vec![crate::level_codec::NAME_ANONYMOUS]);
-    }
-
-    #[test]
-    #[ignore = "build_level Succ path needs runtime init; see Level::succ_dispatch"]
-    fn build_succ_roundtrip() {
-        let d = DecodedLevel::Succ(Box::new(DecodedLevel::Zero));
+    fn level_roundtrips(d: DecodedLevel) {
+        init_runtime();
         let lvl = build_level(&d);
         let mut out = Vec::new();
         encode_level(lvl.as_ref(), &mut out).unwrap();
         assert_eq!(
-            out,
-            vec![crate::level_codec::TAG_SUCC, crate::level_codec::TAG_ZERO]
+            decode_level(&out).unwrap(),
+            d,
+            "level build/encode roundtrip"
         );
     }
 
-    #[test]
-    #[ignore = "needs runtime init; lean_mk_string_from_bytes allocates"]
-    fn build_str_name_roundtrip() {
-        let d = DecodedName::Str(Box::new(DecodedName::Anonymous), b"hello".to_vec());
+    fn name_roundtrips(d: DecodedName) {
+        init_runtime();
         let n = build_name(&d);
         let mut out = Vec::new();
         encode_name(n.as_ref(), &mut out).unwrap();
-        let mut expected = vec![
-            crate::level_codec::NAME_STR,
-            crate::level_codec::NAME_ANONYMOUS,
-        ];
-        expected.extend_from_slice(&5u32.to_le_bytes());
-        expected.extend_from_slice(b"hello");
-        assert_eq!(out, expected);
+        assert_eq!(decode_name(&out).unwrap(), d, "name build/encode roundtrip");
+    }
+
+    fn zero() -> DecodedLevel {
+        DecodedLevel::Zero
+    }
+    fn succ(u: DecodedLevel) -> DecodedLevel {
+        DecodedLevel::Succ(Box::new(u))
+    }
+    fn str_name(s: &[u8]) -> DecodedName {
+        DecodedName::Str(Box::new(DecodedName::Anonymous), s.to_vec())
+    }
+    fn param(s: &[u8]) -> DecodedLevel {
+        DecodedLevel::Param(str_name(s))
+    }
+
+    #[test]
+    fn build_zero_roundtrip() {
+        level_roundtrips(zero());
+    }
+
+    #[test]
+    fn build_succ_roundtrip() {
+        level_roundtrips(succ(succ(zero())));
+    }
+
+    #[test]
+    fn build_max_imax_roundtrip() {
+        level_roundtrips(DecodedLevel::Max(
+            Box::new(succ(param(b"u"))),
+            Box::new(DecodedLevel::IMax(Box::new(param(b"v")), Box::new(zero()))),
+        ));
+    }
+
+    #[test]
+    fn build_param_roundtrip() {
+        level_roundtrips(param(b"u"));
+    }
+
+    #[test]
+    fn build_mvar_roundtrip() {
+        level_roundtrips(DecodedLevel::MVar(DecodedName::Num(
+            Box::new(str_name(b"_uniq")),
+            42,
+        )));
+    }
+
+    #[test]
+    fn build_anonymous_name_roundtrip() {
+        name_roundtrips(DecodedName::Anonymous);
+    }
+
+    #[test]
+    fn build_str_name_roundtrip() {
+        name_roundtrips(str_name(b"hello"));
+    }
+
+    #[test]
+    fn build_nested_name_roundtrip() {
+        name_roundtrips(DecodedName::Num(
+            Box::new(DecodedName::Str(
+                Box::new(str_name(b"Lean")),
+                b"Meta".to_vec(),
+            )),
+            7,
+        ));
     }
 }
