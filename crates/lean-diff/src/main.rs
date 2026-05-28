@@ -1,4 +1,5 @@
 mod registry;
+mod replay;
 
 use std::fs::File;
 use std::io::BufReader;

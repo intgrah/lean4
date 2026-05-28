@@ -44,7 +44,9 @@ impl Default for Registry {
 }
 
 pub fn builtin() -> Registry {
-    Registry::new()
+    let mut r = Registry::new();
+    crate::replay::is_level_def_eq::register(&mut r);
+    r
 }
 
 #[cfg(test)]
@@ -77,8 +79,9 @@ mod tests {
     }
 
     #[test]
-    fn builtin_starts_empty() {
+    fn builtin_registers_is_level_def_eq() {
         let r = builtin();
-        assert_eq!(r.names().count(), 0);
+        let names: Vec<&str> = r.names().collect();
+        assert!(names.contains(&crate::replay::is_level_def_eq::FQN));
     }
 }

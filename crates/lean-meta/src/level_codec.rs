@@ -163,6 +163,12 @@ pub fn decode_level(bytes: &[u8]) -> Result<DecodedLevel, DecodeError> {
     Ok(lvl)
 }
 
+pub fn decode_level_prefix(bytes: &[u8]) -> Result<(DecodedLevel, &[u8]), DecodeError> {
+    let mut cur = bytes;
+    let lvl = decode_level_inner(&mut cur)?;
+    Ok((lvl, cur))
+}
+
 pub fn decode_name(bytes: &[u8]) -> Result<DecodedName, DecodeError> {
     let mut cur = bytes;
     let n = decode_name_inner(&mut cur)?;
