@@ -5,8 +5,13 @@ use std::sync::{Mutex, OnceLock};
 
 use lean_corpus::{FORMAT_VERSION, FileHeader, Record, RecordWriter};
 use lean_expr::LevelRef;
-use lean_runtime_sys::{lean_box, lean_dec, lean_inc, lean_io_result_mk_ok, lean_object};
+use lean_runtime_sys::{
+    lean_alloc_ctor, lean_box, lean_ctor_get, lean_ctor_set, lean_dec, lean_dec_ref, lean_inc,
+    lean_inc_ref, lean_io_result_mk_ok, lean_is_exclusive, lean_object, lean_st_ref_get,
+    lean_st_ref_set,
+};
 
+use crate::level_build::build_level;
 use crate::level_codec::{decoded_level_of_ref, encode_level};
 
 unsafe extern "C" {
@@ -17,6 +22,11 @@ unsafe extern "C" {
         meta_state: *mut lean_object,
         core_ctx: *mut lean_object,
         core_state: *mut lean_object,
+    ) -> *mut lean_object;
+    fn lean_st_ref_take(r: *mut lean_object) -> *mut lean_object;
+    fn lean_instantiate_level_mvars(
+        mctx: *mut lean_object,
+        level: *mut lean_object,
     ) -> *mut lean_object;
 }
 
@@ -58,7 +68,42 @@ pub unsafe fn is_level_def_eq(
                     lean_io_result_mk_ok(lean_box(eq as usize))
                 }
             } else if u.has_mvar() || v.has_mvar() {
-                fall_through()
+                let du = decoded_level_of_ref(u);
+                let dv = decoded_level_of_ref(v);
+                unsafe {
+                    lean_inc(lhs);
+                    let l1 = instantiate_level_mvars_in_state(lhs, meta_state);
+                    lean_inc(rhs);
+                    let l2 = instantiate_level_mvars_in_state(rhs, meta_state);
+                    let n1 = decoded_level_of_ref(
+                        LevelRef::from_borrowed(l1).expect("instantiate lhs returned null"),
+                    )
+                    .normalize();
+                    let n2 = decoded_level_of_ref(
+                        LevelRef::from_borrowed(l2).expect("instantiate rhs returned null"),
+                    )
+                    .normalize();
+                    if du != n1 || dv != n2 {
+                        let b1 = build_level(&n1);
+                        let b2 = build_level(&n2);
+                        lean_dec(lhs);
+                        lean_dec(rhs);
+                        lean_dec(l1);
+                        lean_dec(l2);
+                        is_level_def_eq(
+                            b1.into_obj().into_raw(),
+                            b2.into_obj().into_raw(),
+                            meta_ctx,
+                            meta_state,
+                            core_ctx,
+                            core_state,
+                        )
+                    } else {
+                        lean_dec(l1);
+                        lean_dec(l2);
+                        fall_through()
+                    }
+                }
             } else {
                 let un = decoded_level_of_ref(u).normalize();
                 let vn = decoded_level_of_ref(v).normalize();
@@ -79,6 +124,50 @@ pub unsafe fn is_level_def_eq(
 fn riir_disabled() -> bool {
     static DISABLED: OnceLock<bool> = OnceLock::new();
     *DISABLED.get_or_init(|| std::env::var_os("LEAN_RIIR_DISABLE").is_some())
+}
+
+unsafe fn instantiate_level_mvars_in_state(
+    level: *mut lean_object,
+    meta_state: *mut lean_object,
+) -> *mut lean_object {
+    unsafe {
+        let st_read = lean_st_ref_get(meta_state);
+        let mctx = lean_ctor_get(st_read, 0);
+        lean_inc_ref(mctx);
+        lean_dec(st_read);
+        let pair = lean_instantiate_level_mvars(mctx, level);
+        let new_mctx = lean_ctor_get(pair, 0);
+        lean_inc(new_mctx);
+        let inst = lean_ctor_get(pair, 1);
+        lean_inc(inst);
+        lean_dec_ref(pair);
+        let st = lean_st_ref_take(meta_state);
+        let cache = lean_ctor_get(st, 1);
+        let zeta_delta = lean_ctor_get(st, 2);
+        let postponed = lean_ctor_get(st, 3);
+        let diag = lean_ctor_get(st, 4);
+        let new_state = if lean_is_exclusive(st) {
+            let old_mctx = lean_ctor_get(st, 0);
+            lean_dec(old_mctx);
+            lean_ctor_set(st, 0, new_mctx);
+            st
+        } else {
+            lean_inc(diag);
+            lean_inc(postponed);
+            lean_inc(zeta_delta);
+            lean_inc(cache);
+            lean_dec(st);
+            let ns = lean_alloc_ctor(0, 5, 0);
+            lean_ctor_set(ns, 0, new_mctx);
+            lean_ctor_set(ns, 1, cache);
+            lean_ctor_set(ns, 2, zeta_delta);
+            lean_ctor_set(ns, 3, postponed);
+            lean_ctor_set(ns, 4, diag);
+            ns
+        };
+        let _ = lean_st_ref_set(meta_state, new_state);
+        inst
+    }
 }
 
 struct Capture {
