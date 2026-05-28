@@ -100,6 +100,39 @@ pub fn encode_name(n: NameRef<'_>, out: &mut Vec<u8>) -> Result<(), EncodeError>
     }
 }
 
+pub fn decoded_level_of_ref(u: LevelRef<'_>) -> DecodedLevel {
+    match u.view() {
+        LevelView::Zero => DecodedLevel::Zero,
+        LevelView::Succ(c) => DecodedLevel::Succ(Box::new(decoded_level_of_ref(c))),
+        LevelView::Max(a, b) => DecodedLevel::Max(
+            Box::new(decoded_level_of_ref(a)),
+            Box::new(decoded_level_of_ref(b)),
+        ),
+        LevelView::IMax(a, b) => DecodedLevel::IMax(
+            Box::new(decoded_level_of_ref(a)),
+            Box::new(decoded_level_of_ref(b)),
+        ),
+        LevelView::Param(n) => DecodedLevel::Param(decoded_name_of_ref(n)),
+        LevelView::MVar(id) => DecodedLevel::MVar(decoded_name_of_ref(id.name())),
+    }
+}
+
+pub fn decoded_name_of_ref(n: NameRef<'_>) -> DecodedName {
+    match n.kind() {
+        NameKind::Anonymous => DecodedName::Anonymous,
+        NameKind::Str => {
+            let parent = decoded_name_of_ref(n.parent().expect("Str variant has a parent"));
+            let bytes = n.str_value().expect("Str variant has a value").to_vec();
+            DecodedName::Str(Box::new(parent), bytes)
+        }
+        NameKind::Num => {
+            let parent = decoded_name_of_ref(n.parent().expect("Num variant has a parent"));
+            let v = n.num_value().expect("Num name component exceeds u64");
+            DecodedName::Num(Box::new(parent), v)
+        }
+    }
+}
+
 pub fn encode_decoded_level(u: &DecodedLevel, out: &mut Vec<u8>) -> Result<(), EncodeError> {
     match u {
         DecodedLevel::Zero => {
