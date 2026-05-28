@@ -5,7 +5,7 @@ use std::sync::{Mutex, OnceLock};
 
 use lean_corpus::{FORMAT_VERSION, FileHeader, Record, RecordWriter};
 use lean_expr::LevelRef;
-use lean_runtime_sys::{lean_box, lean_dec, lean_io_result_mk_ok, lean_object};
+use lean_runtime_sys::{lean_box, lean_dec, lean_inc, lean_io_result_mk_ok, lean_object};
 
 use crate::level_codec::encode_level;
 
@@ -40,7 +40,15 @@ pub unsafe fn is_level_def_eq(
             lean_dec(rhs);
             lean_io_result_mk_ok(lean_box(1))
         },
-        (lean_expr::LevelView::Succ(_), lean_expr::LevelView::Succ(_)) => fall_through(),
+        (lean_expr::LevelView::Succ(a), lean_expr::LevelView::Succ(b)) => unsafe {
+            let a_ptr = a.obj().as_ptr();
+            let b_ptr = b.obj().as_ptr();
+            lean_inc(a_ptr);
+            lean_inc(b_ptr);
+            lean_dec(lhs);
+            lean_dec(rhs);
+            is_level_def_eq(a_ptr, b_ptr, meta_ctx, meta_state, core_ctx, core_state)
+        },
         (lean_expr::LevelView::Max(_, _), lean_expr::LevelView::Max(_, _)) => fall_through(),
         (lean_expr::LevelView::IMax(_, _), lean_expr::LevelView::IMax(_, _)) => fall_through(),
         (lean_expr::LevelView::Param(_), lean_expr::LevelView::Param(_)) => fall_through(),
