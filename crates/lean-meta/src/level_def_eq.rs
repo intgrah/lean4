@@ -28,6 +28,11 @@ pub unsafe fn is_level_def_eq(
     core_ctx: *mut lean_object,
     core_state: *mut lean_object,
 ) -> *mut lean_object {
+    if riir_disabled() {
+        return unsafe {
+            __real_lean_is_level_def_eq(lhs, rhs, meta_ctx, meta_state, core_ctx, core_state)
+        };
+    }
     let u = unsafe { LevelRef::from_borrowed(lhs).expect("is_level_def_eq: null lhs") };
     let v = unsafe { LevelRef::from_borrowed(rhs).expect("is_level_def_eq: null rhs") };
     capture_inputs(u, v);
@@ -57,6 +62,11 @@ pub unsafe fn is_level_def_eq(
             }
         }
     }
+}
+
+fn riir_disabled() -> bool {
+    static DISABLED: OnceLock<bool> = OnceLock::new();
+    *DISABLED.get_or_init(|| std::env::var_os("LEAN_RIIR_DISABLE").is_some())
 }
 
 struct Capture {

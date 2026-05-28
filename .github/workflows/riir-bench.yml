@@ -1,0 +1,80 @@
+name: RIIR / is_level_def_eq perf A/B
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - riir
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "src/CMakeLists.txt"
+      - "src/Lean/Meta/LevelDefEq.lean"
+      - "script/riir_bench.py"
+      - ".github/workflows/riir-bench.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  bench:
+    name: instruction A/B (Rust dispatch vs passthrough)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 2G
+      CCACHE_COMPRESS: "true"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake clang libclang-dev libgmp-dev libuv1-dev ccache jq
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache C/C++ compile artifacts (ccache + stage0)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ github.workspace }}/.ccache
+            build/release/stage0
+          key: ${{ runner.os }}-riir-cpp-${{ hashFiles('stage0/**', 'src/**/*.cpp', 'src/**/*.h', 'src/CMakeLists.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-riir-cpp-
+
+      - name: Cache Rust toolchain + override target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            build/release/rust-target
+          key: ${{ runner.os }}-riir-rust-${{ hashFiles('Cargo.lock', 'crates/**/Cargo.toml', 'crates/**/build.rs', 'crates/**/*.rs') }}
+          restore-keys: |
+            ${{ runner.os }}-riir-rust-
+
+      - name: Cache stage1 Lean artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/release/stage1/lib/lean
+            build/release/stage1/lib/temp
+          key: ${{ runner.os }}-riir-stage1-${{ hashFiles('src/Lean/**/*.lean', 'src/Init/**/*.lean', 'src/Std/**/*.lean') }}
+          restore-keys: |
+            ${{ runner.os }}-riir-stage1-
+
+      - name: Configure (LEAN_RUST_OVERRIDES=ON)
+        run: cmake -B build/release -S . -DCMAKE_BUILD_TYPE=Release -DLEAN_RUST_OVERRIDES=ON
+
+      - name: Build
+        run: make -j$(nproc) -C build/release
+
+      - name: Instruction A/B (override active vs LEAN_RIIR_DISABLE passthrough)
+        run: python3 script/riir_bench.py cbv_system_f big_struct_dep
