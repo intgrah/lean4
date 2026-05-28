@@ -88,3 +88,9 @@ jobs:
           build/release/stage1/bin/lean --version
           echo '#eval 1 + 1' > /tmp/smoke.lean
           build/release/stage1/bin/lean /tmp/smoke.lean
+
+      - name: Run upstream test suite against override-on lean
+        env:
+          CTEST_PARALLEL_LEVEL: 4
+          CTEST_OUTPUT_ON_FAILURE: 1
+        run: make -C build/release -j$(nproc) test
