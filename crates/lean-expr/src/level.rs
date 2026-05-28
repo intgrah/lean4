@@ -11,9 +11,9 @@ unsafe extern "C" {
     fn lean_level_mk_param(name: lean_obj_arg) -> lean_obj_arg;
     fn lean_level_mk_mvar(id: lean_obj_arg) -> lean_obj_arg;
 
-    fn lean_level_hash(u: b_lean_obj_arg) -> u32;
-    fn lean_level_has_mvar(u: b_lean_obj_arg) -> u8;
-    fn lean_level_has_param(u: b_lean_obj_arg) -> u8;
+    fn lean_level_hash(u: lean_obj_arg) -> u32;
+    fn lean_level_has_mvar(u: lean_obj_arg) -> u8;
+    fn lean_level_has_param(u: lean_obj_arg) -> u8;
 }
 
 #[repr(transparent)]
@@ -172,15 +172,24 @@ impl<'a> LevelRef<'a> {
     }
 
     pub fn hash(self) -> u32 {
-        unsafe { lean_level_hash(self.obj.as_ptr()) }
+        unsafe {
+            lean_inc(self.obj.as_ptr());
+            lean_level_hash(self.obj.as_ptr())
+        }
     }
 
     pub fn has_mvar(self) -> bool {
-        unsafe { lean_level_has_mvar(self.obj.as_ptr()) != 0 }
+        unsafe {
+            lean_inc(self.obj.as_ptr());
+            lean_level_has_mvar(self.obj.as_ptr()) != 0
+        }
     }
 
     pub fn has_param(self) -> bool {
-        unsafe { lean_level_has_param(self.obj.as_ptr()) != 0 }
+        unsafe {
+            lean_inc(self.obj.as_ptr());
+            lean_level_has_param(self.obj.as_ptr()) != 0
+        }
     }
 
     pub fn get_offset(self) -> u64 {
@@ -257,6 +266,18 @@ impl<'a> LMVarIdRef<'a> {
 mod tests {
     use super::*;
 
+    fn init_runtime() {
+        use std::sync::Once;
+        static INIT: Once = Once::new();
+        INIT.call_once(|| unsafe {
+            unsafe extern "C" {
+                fn lean_initialize_runtime_module();
+            }
+            lean_initialize_runtime_module();
+            lean_runtime_sys::lean_io_mark_end_initialization();
+        });
+    }
+
     #[test]
     fn zero_is_scalar() {
         let z = Level::zero();
@@ -268,8 +289,8 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "lean_level_mk_succ segfaults even after initialize_Lean_Level(1); investigation deferred"]
     fn succ_dispatch() {
+        init_runtime();
         let z = Level::zero();
         let s = Level::succ(z.as_ref());
         assert_eq!(s.as_ref().kind(), LevelKind::Succ);
@@ -280,8 +301,24 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "needs runtime init resolution; see succ_dispatch"]
+    fn max_dispatch() {
+        init_runtime();
+        let z = Level::zero();
+        let s = Level::succ(z.as_ref());
+        let m = Level::max(z.as_ref(), s.as_ref());
+        assert_eq!(m.as_ref().kind(), LevelKind::Max);
+        match m.as_ref().view() {
+            LevelView::Max(a, b) => {
+                assert_eq!(a.kind(), LevelKind::Zero);
+                assert_eq!(b.kind(), LevelKind::Succ);
+            }
+            _ => panic!("expected Max"),
+        }
+    }
+
+    #[test]
     fn param_carries_name() {
+        init_runtime();
         let n = crate::name::Name::anonymous();
         let p = Level::param(n.as_ref());
         assert_eq!(p.as_ref().kind(), LevelKind::Param);
