@@ -7,7 +7,7 @@ use lean_corpus::{FORMAT_VERSION, FileHeader, Record, RecordWriter};
 use lean_expr::LevelRef;
 use lean_runtime_sys::{lean_box, lean_dec, lean_inc, lean_io_result_mk_ok, lean_object};
 
-use crate::level_codec::{decoded_level_of_ref, encode_level};
+use crate::level_codec::encode_level;
 
 unsafe extern "C" {
     fn __real_lean_is_level_def_eq(
@@ -57,20 +57,8 @@ pub unsafe fn is_level_def_eq(
                     lean_dec(rhs);
                     lean_io_result_mk_ok(lean_box(eq as usize))
                 }
-            } else if u.has_mvar() || v.has_mvar() {
-                fall_through()
             } else {
-                let un = decoded_level_of_ref(u).normalize();
-                let vn = decoded_level_of_ref(v).normalize();
-                if un == vn {
-                    unsafe {
-                        lean_dec(lhs);
-                        lean_dec(rhs);
-                        lean_io_result_mk_ok(lean_box(1))
-                    }
-                } else {
-                    fall_through()
-                }
+                fall_through()
             }
         }
     }
