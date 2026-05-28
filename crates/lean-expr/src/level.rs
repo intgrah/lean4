@@ -182,6 +182,40 @@ impl<'a> LevelRef<'a> {
     pub fn has_param(self) -> bool {
         unsafe { lean_level_has_param(self.obj.as_ptr()) != 0 }
     }
+
+    pub fn get_offset(self) -> u64 {
+        let mut cur = self;
+        let mut n = 0u64;
+        while let LevelView::Succ(inner) = cur.view() {
+            n += 1;
+            cur = inner;
+        }
+        n
+    }
+
+    pub fn get_level_offset(self) -> LevelRef<'a> {
+        let mut cur = self;
+        while let LevelView::Succ(inner) = cur.view() {
+            cur = inner;
+        }
+        cur
+    }
+
+    pub fn structurally_eq(self, other: LevelRef<'_>) -> bool {
+        match (self.view(), other.view()) {
+            (LevelView::Zero, LevelView::Zero) => true,
+            (LevelView::Succ(a), LevelView::Succ(b)) => a.structurally_eq(b),
+            (LevelView::Max(a1, a2), LevelView::Max(b1, b2)) => {
+                a1.structurally_eq(b1) && a2.structurally_eq(b2)
+            }
+            (LevelView::IMax(a1, a2), LevelView::IMax(b1, b2)) => {
+                a1.structurally_eq(b1) && a2.structurally_eq(b2)
+            }
+            (LevelView::Param(a), LevelView::Param(b)) => a == b,
+            (LevelView::MVar(a), LevelView::MVar(b)) => a.name() == b.name(),
+            _ => false,
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
