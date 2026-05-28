@@ -35,10 +35,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake clang libclang-dev libgmp-dev libuv1-dev ccache jq
-
-      - name: Open perf counters for measure.py
-        run: sudo sysctl -w kernel.perf_event_paranoid=1
+          sudo apt-get install -y cmake clang libclang-dev libgmp-dev libuv1-dev ccache jq valgrind
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -79,4 +76,4 @@ jobs:
         run: make -j$(nproc) -C build/release
 
       - name: Instruction A/B (override active vs LEAN_RIIR_DISABLE passthrough)
-        run: python3 script/riir_bench.py cbv_system_f big_struct_dep
+        run: python3 script/riir_bench.py cbv_system_f
