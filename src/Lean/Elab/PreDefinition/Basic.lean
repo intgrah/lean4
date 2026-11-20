@@ -35,6 +35,7 @@ structure PreDefinition where
   declName    : Name
   binders     : Syntax
   numSectionVars : Nat := 0
+  sectionVarUIds : Array (Option Name) := #[]
   type        : Expr
   value       : Expr
   termination : TerminationHints

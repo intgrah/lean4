@@ -913,6 +913,10 @@ end
 @[builtin_command_parser] def «open»    := leading_parser
   withPosition ("open" >> openDecl)
 
+@[builtin_command_parser] def openWithParameters := leading_parser
+  "open " >> ident >> many1 (ppSpace >> Term.namedArgument) >>
+  optional (ppSpace >> "(" >> many1 ident >> ")")
+
 @[builtin_command_parser] def «mutual» := leading_parser
   "mutual" >> many1 (ppLine >> notSymbol "end" >> commandParser) >>
   ppDedent (ppLine >> "end")

@@ -172,7 +172,13 @@ def partialFixpoint (docCtx : LocalContext × LocalInstances) (preDefs : Array P
       let inst ← toPartialOrder insts'[i]! type
       let goal ← mkAppOptM ``monotone #[packedType, packedPartialOrderInst, type, inst, F]
       if let some term := hints[i]!.term? then
-        let hmono ← Term.withSynthesize <| Term.elabTermEnsuringType term goal
+        let mut sectionFVars := {}
+        for uid? in preDef.sectionVarUIds, fixed? in fixedParamPerms.perms[i]! do
+          if let some uid := uid? then
+            if let some idx := fixed? then
+              sectionFVars := sectionFVars.insert uid fixedArgs[idx]!
+        let hmono ← withReader (fun ctx => { ctx with sectionFVars }) <|
+          Term.withSynthesize <| Term.elabTermEnsuringType term goal
         let hmono ← instantiateMVars hmono
         let mvars ← getMVars hmono
         if mvars.isEmpty then

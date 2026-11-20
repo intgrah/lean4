@@ -125,8 +125,6 @@ private def addNamespaceParameters (id : Ident)
   let parentVariables := ((Term.getNamespaceParameterScopes env).head?.map
     (·.variables)).getD #[]
   let name ← getCurrNamespace
-  if (Term.getNamespaceTelescope? (← getEnv) name).isSome then
-    throwErrorAt id "parameterized namespace `{name}` already exists"
   let (telescope, names) ← runTermElabM fun inherited =>
     Term.elabBinders binders fun params => do
       Term.synthesizeSyntheticMVarsNoPostponing
@@ -138,6 +136,11 @@ private def addNamespaceParameters (id : Ident)
         (mkConst ``Unit)
       if telescope.hasMVar || telescope.hasFVar || telescope.hasSorry then
         throwErrorAt id "namespace parameters require a fully specified telescope"
+      if let some existing := Term.getNamespaceTelescope? env name then
+        let previous := (collectLevelParams {} existing).params.toList
+        let levels ← Meta.mkFreshLevelMVars previous.length
+        unless ← Meta.isDefEq (existing.instantiateLevelParams previous levels) telescope do
+          throwErrorAt id "namespace parameters do not match the declaration of `{name}`"
       return (telescope, names)
   let variables ← names.mapM fun name => do
     return (name, ← withFreshMacroScope <| MonadQuotation.addMacroScope name)
@@ -498,6 +501,30 @@ private def namespaceApplicationArguments (telescope : Expr) (arguments : Array 
       throwError "could not determine the namespace arguments"
     return args
 
+@[builtin_command_elab Lean.Parser.Command.openWithParameters]
+def elabOpenWithParameters : CommandElab := fun stx => do
+  let ns : Ident := ⟨stx[1]⟩
+  let name ← resolveUniqueNamespace ns
+  let env ← getEnv
+  let some telescope := Term.getNamespaceTelescope? env name
+    | throwErrorAt ns "`{name}` is not a parameterized namespace"
+  let selected := if stx[3].getNumArgs == 0 then none else some stx[3]
+  let decl ← if let some group := selected then
+    let ids := group[1].getArgs.map (⟨·⟩ : Syntax → Ident)
+    `(Parser.Command.openDecl| $ns ($ids*))
+  else
+    `(Parser.Command.openDecl| $ns:ident)
+  let members := Term.getNamespaceMembers env name
+  let members := if let some group := selected then
+    let names := group[1].getArgs.map fun id => name ++ id.getId
+    members.filter fun member => names.contains (privateToUserName member)
+  else members
+  runTermElabM fun _ => do
+    let args ← namespaceApplicationArguments telescope stx[2].getArgs
+    Term.openNamespaceArguments members args
+  let openDecls ← elabOpenDecl decl
+  modifyScope fun scope => { scope with openDecls }
+
 private def specializeNamespaceMember (source target : Name) (args ambient : Array Expr) :
     TermElabM Unit := do
   let env ← getEnv
@@ -565,7 +592,7 @@ def elabCheckCore (ignoreStuckTC : Bool) : CommandElab
     if let `($id:ident) := term then
       try
         for c in (← realizeGlobalConstWithInfos term) do
-          if (Term.getNamespaceParameterScopeFor? (← getEnv) id.getId c).isSome then
+          if Term.hasNamespaceArguments (← getEnv) id.getId c then
             break
           addCompletionInfo <| .id term id.getId (danglingDot := false) {} none
           logInfoAt tk <| .signature c

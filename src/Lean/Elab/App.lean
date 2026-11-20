@@ -1925,11 +1925,46 @@ def applyNamespaceParameters (fn : Expr) (parameters : Array Expr) : MetaM Expr 
     Meta.checkApp fn param
     return mkApp fn param
 
-private def supplyNamespaceParameters (ref : Syntax) (f : Expr) : TermElabM Expr := do
+structure OpenNamespaceArguments where
+  variables : Array Name
+  args : Array Expr
+  deriving Inhabited
+
+private builtin_initialize openedNamespaceArguments :
+    SimpleScopedEnvExtension (Array Name × OpenNamespaceArguments) (NameMap OpenNamespaceArguments) ←
+  registerSimpleScopedEnvExtension {
+    initial := {}
+    addEntry := fun state (members, args) => members.foldl (·.insert · args) state
+  }
+
+def openNamespaceArguments (members : Array Name) (args : Array Expr) : TermElabM Unit := do
+  let vars := (← read).sectionFVars.toList.filter fun (_, e) => args.any (·.containsFVar e.fvarId!)
+  let args := args.map (·.abstract (vars.map Prod.snd).toArray)
+  if args.any (·.hasFVar) then
+    throwError "namespace arguments contain an inaccessible local variable"
+  modifyEnv (openedNamespaceArguments.addLocalEntry · (members, ⟨(vars.map Prod.fst).toArray, args⟩))
+
+def hasNamespaceArguments (env : Environment) (id decl : Name) : Bool :=
+  !(`_root_).isPrefixOf id && ((getNamespaceParameterScopeFor? env id decl).isSome ||
+    (openedNamespaceArguments.getState env).contains decl)
+
+private def supplyNamespaceParameters (ref : Syntax) (f : Expr) (namedArgs : Array NamedArg) :
+    TermElabM Expr := do
   let .const decl _ := f | return f
-  let some scope := getNamespaceParameterScopeFor? (← getEnv) ref.getId decl | return f
-  let parameters ← getNamespaceParameters scope
-  if parameters.size != scope.variables.size then return f
+  if (`_root_).isPrefixOf ref.getId then return f
+  let env ← getEnv
+  let parameters ← if let some scope := getNamespaceParameterScopeFor? env ref.getId decl then do
+      let args ← getNamespaceParameters scope
+      if args.size != scope.variables.size then pure #[] else pure args
+    else if let some opened := (openedNamespaceArguments.getState env).find? decl then do
+      let vars := (← read).sectionFVars
+      let some xs := opened.variables.mapM vars.find? | pure #[]
+      pure (opened.args.map (·.instantiateRev xs))
+    else pure #[]
+  if parameters.isEmpty then return f
+  unless namedArgs.isEmpty do
+    let binders := (← getConstInfo decl).type.getForallBinderNames.take parameters.size
+    if namedArgs.any (fun arg => binders.contains arg.name) then return f
   applyNamespaceParameters f parameters
 
 /--
@@ -1950,7 +1985,7 @@ private def elabAppFnResolutions (fRef : Syntax) (fns : List (Expr × Syntax × 
         LVal.fieldName field field.getId.getString! levels suffix? fRef
       let s ← observing do
         checkDeprecated fIdent f
-        let f ← supplyNamespaceParameters fIdent f
+        let f ← supplyNamespaceParameters fIdent f namedArgs
         let f ← addTermInfo fIdent f expectedType? (force := forceTermInfo)
         let e ← elabAppLVals f (lvals' ++ lvals) namedArgs args expectedType? explicit ellipsis
         if overloaded then ensureHasType expectedType? e else return e

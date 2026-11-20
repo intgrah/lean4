@@ -1046,7 +1046,10 @@ def Replacement.apply (r : Replacement) (e : Expr) : Expr :=
       | _ => none
 
 def pushMain (preDefs : Array PreDefinition) (sectionVars : Array Expr) (mainHeaders : Array DefViewElabHeader) (mainVals : Array Expr)
-    : TermElabM (Array PreDefinition) :=
+    : TermElabM (Array PreDefinition) := do
+  let sectionFVars := (← read).sectionFVars.toList
+  let sectionVarUIds := sectionVars.map fun x =>
+    sectionFVars.findSome? fun (uid, e) => if e == x then some uid else none
   mainHeaders.size.foldM (init := preDefs) fun i _ preDefs => do
     let header := mainHeaders[i]
     let termination ← declValToTerminationHint header.value
@@ -1061,6 +1064,7 @@ def pushMain (preDefs : Array PreDefinition) (sectionVars : Array Expr) (mainHea
       kind        := header.kind
       declName    := header.declName
       binders     := header.binders
+      sectionVarUIds
       numSectionVars := sectionVars.size
       levelParams := [], -- we set it later
       modifiers   := header.modifiers

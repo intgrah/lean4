@@ -34,7 +34,8 @@ def elabAuxDef : CommandElab
     let env := (← getEnv).setExporting true
     let (id, _) := DeclNameGenerator.ofPrefix ns |>.mkUniqueName env («infix» := Name.mkSimple id)
     let id := id.replacePrefix ns Name.anonymous -- TODO: replace with def _root_.id
-    elabCommand <|
+    withScope (fun s => { s with opts := s.opts.setBool `internal.auxiliarySyntaxDeclaration true }) <|
+      elabCommand <|
       ← `($[$doc?:docComment]? $[$attrs?:attributes]? $vis:visibility
           meta def $(mkIdentFrom (mkNullNode suggestion) id (canonical := true)):ident : $ty := $body)
   | _ => throwUnsupportedSyntax

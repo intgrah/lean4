@@ -448,7 +448,8 @@ def elabSyntax (stx : Syntax) : CommandElabM Name := do
     `($[$doc?:docComment]? @[$attrInstances,*] $vis:visibility meta def $declName:ident : Lean.ParserDescr :=
         ParserDescr.node $(quote stxNodeKind) $(quote prec) $val)
   trace `Elab fun _ => d
-  withMacroExpansion stx d <| elabCommand d
+  withScope (fun s => { s with opts := s.opts.setBool `internal.auxiliarySyntaxDeclaration true }) <|
+    withMacroExpansion stx d <| elabCommand d
   return stxNodeKind
 
 @[builtin_command_elab «syntax»] private def elabSyntaxAux : CommandElab := fun stx =>

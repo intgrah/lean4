@@ -707,6 +707,14 @@ private builtin_initialize namespaceTelescopes :
       (fun telescopes (name, type) => telescopes.insert name type) {}
   }
 
+private builtin_initialize namespaceParameterAncestors :
+    SimplePersistentEnvExtension (Name × List Name) (NameMap (List Name)) ←
+  registerSimplePersistentEnvExtension {
+    addEntryFn := fun ancestors (name, parents) => ancestors.insert name parents
+    addImportedFn := mkStateFromImportedEntries
+      (fun ancestors (name, parents) => ancestors.insert name parents) {}
+  }
+
 private builtin_initialize namespaceMemberOwners :
     SimplePersistentEnvExtension (Name × Name) (NameMap Name) ←
   registerSimplePersistentEnvExtension {
@@ -727,10 +735,14 @@ def getNamespaceTelescope? (env : Environment) (name : Name) : Option Expr :=
 
 def addNamespaceParameterScope (env : Environment) (scope : NamespaceParameterScope) :
     Environment :=
-  namespaceParameterScopes.addLocalEntry
-    (namespaceTelescopes.addEntry env (scope.name, scope.telescope)) scope
+  let env := if (getNamespaceTelescope? env scope.name).isSome then env else
+    let parents := (getNamespaceParameterScopes env).map (·.name)
+    namespaceParameterAncestors.addEntry
+      (namespaceTelescopes.addEntry env (scope.name, scope.telescope)) (scope.name, parents)
+  namespaceParameterScopes.addLocalEntry env scope
 
-def recordNamespaceMember [Monad m] [MonadEnv m] (decl : Name) : m Unit := do
+def recordNamespaceMember [Monad m] [MonadEnv m] [MonadOptions m] (decl : Name) : m Unit := do
+  if (← getOptions).getBool `internal.auxiliarySyntaxDeclaration false then return
   let env ← getEnv
   let scope :: _ := getNamespaceParameterScopes env | return
   if scope.name.isPrefixOf (privateToUserName decl) then
@@ -744,16 +756,19 @@ def getNamespaceMemberOwner? (env : Environment) (decl : Name) : Option Name := 
   let some (.ctorInfo ctor) := env.find? decl | none
   owners.find? ctor.induct
 
+private def isNamespaceParameterOwner (env : Environment) (name owner : Name) : Bool :=
+  name == owner || ((namespaceParameterAncestors.getState env).getD owner []).contains name
+
 def getNamespaceParameterScopeFor? (env : Environment) (id decl : Name) :
     Option NamespaceParameterScope := do
   let scopes@(_ :: _) := getNamespaceParameterScopes env | none
   if (`_root_).isPrefixOf id then none else
     let owner ← getNamespaceMemberOwner? env decl
-    scopes.find? (fun scope => scope.name.isPrefixOf owner)
+    scopes.find? (fun scope => isNamespaceParameterOwner env scope.name owner)
 
 def getNamespaceMembers (env : Environment) (name : Name) : Array Name :=
   (namespaceMemberOwners.getState env).foldl (init := #[]) fun members decl owner =>
-    if name.isPrefixOf owner then
+    if isNamespaceParameterOwner env name owner then
       match env.find? decl (skipRealize := true) with
       | some (.inductInfo ind) =>
         let projections := if isStructure env decl then
@@ -769,6 +784,7 @@ def getNamespaceParameters (scope : NamespaceParameterScope) : TermElabM (Array 
   return scope.variables.filterMap fun (_, uid) => sectionFVars.find? uid
 
 def getActiveNamespaceParameters : TermElabM (Array Expr) := do
+  if (← getOptions).getBool `internal.auxiliarySyntaxDeclaration false then return #[]
   let scope :: _ := getNamespaceParameterScopes (← getEnv) | return #[]
   getNamespaceParameters scope
 
