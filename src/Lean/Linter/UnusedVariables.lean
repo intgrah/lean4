@@ -196,6 +196,10 @@ builtin_initialize
 builtin_initialize addBuiltinUnusedVariablesIgnoreFn (fun _ stack _ =>
     stack.matches [`null, none, `null, ``Lean.Parser.Command.variable])
 
+builtin_initialize addBuiltinUnusedVariablesIgnoreFn (fun _ stack _ =>
+  stack.matches [`null, none, `null, ``Lean.Parser.Command.namespaceWithParameters] ||
+    stack.matches [`null, none, `null, ``Lean.Parser.Command.namespaceApplication])
+
 /--
 * `structure Foo (unused : Nat)`
 * `inductive Foo (unused : Foo)`

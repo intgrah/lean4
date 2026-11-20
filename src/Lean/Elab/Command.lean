@@ -969,6 +969,9 @@ def getBracketedBinderIds : Syntax → CommandElabM (Array Name)
 private def mkTermContext (ctx : Context) (s : State) : CommandElabM Term.Context := do
   let scope      := s.scopes.head!
   let mut sectionVars := {}
+  if let some ns := (Term.getNamespaceParameterScopes s.env).head? then
+    for (id, uid) in ns.variables do
+      sectionVars := sectionVars.insert id uid
   for id in (← scope.varDecls.flatMapM getBracketedBinderIds), uid in scope.varUIds do
     sectionVars := sectionVars.insert id uid
   return {
@@ -1046,29 +1049,46 @@ variable (n : Nat)
 -/
 def runTermElabM (elabFn : Array Expr → TermElabM α) : CommandElabM α := do
   let scope ← getScope
-  liftTermElabM <|
+  let ns? := (Term.getNamespaceParameterScopes (← getEnv)).head?
+  liftTermElabM <| withParameters ns? fun params paramUIds =>
     Term.withAutoBoundImplicit <|
       Term.elabBinders scope.varDecls fun xs => do
         -- We need to synthesize postponed terms because this is a checkpoint for the auto-bound implicit feature
         -- If we don't use this checkpoint here, then auto-bound implicits in the postponed terms will not be handled correctly.
         Term.synthesizeSyntheticMVarsNoPostponing
-        let mut sectionFVars := {}
-        for uid in scope.varUIds, x in xs do
-          sectionFVars := sectionFVars.insert uid x
-        withReader ({ · with sectionFVars := sectionFVars }) do
-          -- We don't want to store messages produced when elaborating `(getVarDecls s)` because they have already been saved when we elaborated the `variable`(s) command.
-          -- So, we use `Core.resetMessageLog`.
-          Core.resetMessageLog
-          let xs ← Term.addAutoBoundImplicits xs none
-          if xs.all (·.isFVar) then
-            Term.withoutAutoBoundImplicit <| elabFn xs
-          else
-            -- Abstract any mvars that appear in `xs` using `mkForallFVars` (the type `mkSort Level.zero` is an arbitrary placeholder)
-            -- and then rebuild the local context from scratch.
-            -- Resetting prevents the local context from including the original fvars from `xs`.
-            let ctxType ← Meta.mkForallFVars' xs (mkSort Level.zero)
-            Meta.withLCtx {} {} <| Meta.forallBoundedTelescope ctxType xs.size fun xs _ =>
-              Term.withoutAutoBoundImplicit <| elabFn xs
+        let withVariables (vars : Array Expr) := do
+          let sectionFVars := bindVariables paramUIds vars
+          let sectionFVars := bindVariables scope.varUIds
+            vars[(vars.size - xs.size)...*].toArray sectionFVars
+          withReader ({ · with sectionFVars := sectionFVars }) do
+            Term.withoutAutoBoundImplicit <| elabFn vars
+        -- We don't want to store messages produced when elaborating `(getVarDecls s)` because they have already been saved when we elaborated the `variable`(s) command.
+        -- So, we use `Core.resetMessageLog`.
+        Core.resetMessageLog
+        let vars := params ++ (← Term.addAutoBoundImplicits xs none)
+        if vars.all (·.isFVar) then
+          withVariables vars
+        else
+          -- Abstract any mvars that appear in `xs` using `mkForallFVars` (the type `mkSort Level.zero` is an arbitrary placeholder)
+          -- and then rebuild the local context from scratch.
+          -- Resetting prevents the local context from including the original fvars from `xs`.
+          let ctxType ← Meta.mkForallFVars' vars (mkSort Level.zero)
+          Meta.withLCtx {} {} <| Meta.forallBoundedTelescope ctxType vars.size
+            fun vars _ => withVariables vars
+where
+  bindVariables (uids : Array Name) (vars : Array Expr) (fvars : NameMap Expr := {}) :
+      NameMap Expr := Id.run do
+    let mut fvars := fvars
+    for uid in uids, var in vars do
+      fvars := fvars.insert uid var
+    return fvars
+
+  withParameters (ns? : Option Term.NamespaceParameterScope)
+      (k : Array Expr → Array Name → TermElabM α) : TermElabM α := do
+    let some ns := ns? | k #[] #[]
+    Meta.forallTelescope ns.telescope fun params _ => do
+      let uids := ns.variables.map Prod.snd
+      withReader ({ · with sectionFVars := bindVariables uids params }) <| k params uids
 
 private def liftAttrM {α} (x : AttrM α) : CommandElabM α := do
   liftCoreM x

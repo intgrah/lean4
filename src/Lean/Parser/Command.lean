@@ -364,6 +364,18 @@ corresponding `end <id>` or the end of the file.
 -/
 @[builtin_command_parser] def «namespace»    := leading_parser
   "namespace " >> checkColGt >> ident
+
+/-- `namespace N (parameters)` opens a namespace with a dependent parameter telescope.
+Every declaration within it abstracts over the telescope. References within the scope supply
+the current parameters automatically. -/
+@[builtin_command_parser] def namespaceWithParameters := leading_parser
+  "namespace " >> checkColGt >> ident >> many1 (ppSpace >> Term.bracketedBinder)
+
+/-- `namespace N := M arguments` specializes the parameterized namespace `M` at the given
+arguments. `N` can declare its own parameters before `:=`. -/
+@[builtin_command_parser] def namespaceApplication := leading_parser
+  "namespace " >> checkColGt >> ident >> many (ppSpace >> Term.bracketedBinder) >>
+  " := " >> ident >> many Term.argument
 /--
 `with_weak_namespace <id> <cmd>` changes the current namespace to `<id>` for the duration of
 executing command `<cmd>`, without causing scoped things to go out of scope.

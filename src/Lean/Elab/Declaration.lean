@@ -115,7 +115,9 @@ def elabAxiom (modifiers : Modifiers) (stx : Syntax) : CommandElabM Unit := do
       let xs ← Term.addAutoBoundImplicits xs (declId.getTailPos? (canonicalOnly := true))
       let type ← instantiateMVars type
       let type ← mkForallFVars xs type
-      let type ← mkForallFVars vars type (usedOnly := true)
+      let required ← Term.getActiveNamespaceParameters
+      let type ← mkForallFVars vars[required.size...*].toArray type (usedOnly := true)
+      let type ← mkForallFVars required type
       let type ← Term.levelMVarToParam type
       let usedParams  := collectLevelParams {} type |>.params
       match sortDeclLevelParams scopeLevelNames allUserLevelNames usedParams with
@@ -131,6 +133,7 @@ def elabAxiom (modifiers : Modifiers) (stx : Syntax) : CommandElabM Unit := do
         trace[Elab.axiom] "{declName} : {type}"
         Term.ensureNoUnassignedMVars decl
         addDecl decl
+        Term.recordNamespaceMember declName
 
         Term.applyAttributesAt declName modifiers.attrs AttributeApplicationTime.afterTypeChecking
         if isExtern (← getEnv) declName then

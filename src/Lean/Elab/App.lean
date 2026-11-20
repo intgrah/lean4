@@ -1920,6 +1920,18 @@ false, no elaboration function executed by `x` will reset it to
 `true`.
 -/
 
+def applyNamespaceParameters (fn : Expr) (parameters : Array Expr) : MetaM Expr :=
+  parameters.foldlM (init := fn) fun fn param => do
+    Meta.checkApp fn param
+    return mkApp fn param
+
+private def supplyNamespaceParameters (ref : Syntax) (f : Expr) : TermElabM Expr := do
+  let .const decl _ := f | return f
+  let some scope := getNamespaceParameterScopeFor? (← getEnv) ref.getId decl | return f
+  let parameters ← getNamespaceParameters scope
+  if parameters.size != scope.variables.size then return f
+  applyNamespaceParameters f parameters
+
 /--
 Elaborates the resolutions of a function. The `fns` array is the output of `resolveName'`.
 -/
@@ -1938,6 +1950,7 @@ private def elabAppFnResolutions (fRef : Syntax) (fns : List (Expr × Syntax × 
         LVal.fieldName field field.getId.getString! levels suffix? fRef
       let s ← observing do
         checkDeprecated fIdent f
+        let f ← supplyNamespaceParameters fIdent f
         let f ← addTermInfo fIdent f expectedType? (force := forceTermInfo)
         let e ← elabAppLVals f (lvals' ++ lvals) namedArgs args expectedType? explicit ellipsis
         if overloaded then ensureHasType expectedType? e else return e

@@ -9,6 +9,7 @@ prelude
 public import Lean.Meta.Reduce
 public import Lean.Elab.Eval
 public import Lean.Elab.Command
+import Lean.Elab.App
 import Lean.Elab.ConfigEval
 import Lean.Elab.DeprecatedSyntax
 public import Lean.Elab.Open
@@ -102,6 +103,53 @@ private def checkEndHeader : Name → List Scope → Option Name
   match stx with
   | `(namespace $n) => addNamespace n.getId
   | _               => throwUnsupportedSyntax
+
+private def withNamespaceRollback (action : CommandElabM Unit) : CommandElabM Unit := do
+  let original ← get
+  let restore := do
+    let messages := (← get).messages
+    set { original with messages }
+  try
+    action
+    if !original.messages.hasErrors && (← get).messages.hasErrors then
+      restore
+  catch ex =>
+    restore
+    throw ex
+
+private def addNamespaceParameters (id : Ident)
+    (binders : Array (TSyntax ``Parser.Term.bracketedBinder)) : CommandElabM Unit := do
+  unless (← getScope).varDecls.isEmpty do
+    throwErrorAt id "declare namespace parameters before ordinary section variables"
+  let env ← getEnv
+  let parentVariables := ((Term.getNamespaceParameterScopes env).head?.map
+    (·.variables)).getD #[]
+  let name ← getCurrNamespace
+  if (Term.getNamespaceTelescope? (← getEnv) name).isSome then
+    throwErrorAt id "parameterized namespace `{name}` already exists"
+  let (telescope, names) ← runTermElabM fun inherited =>
+    Term.elabBinders binders fun params => do
+      Term.synthesizeSyntheticMVarsNoPostponing
+      let names ← params.mapM fun p => return (← Term.getFVarLocalDecl! p).userName
+      let allNames := (parentVariables.map (fun (name, _) => name)) ++ names
+      unless allNames.toList.Nodup do
+        throwErrorAt id "duplicate namespace parameter"
+      let telescope ← Term.levelMVarToParam <| ← Meta.mkForallFVars (inherited ++ params)
+        (mkConst ``Unit)
+      if telescope.hasMVar || telescope.hasFVar || telescope.hasSorry then
+        throwErrorAt id "namespace parameters require a fully specified telescope"
+      return (telescope, names)
+  let variables ← names.mapM fun name => do
+    return (name, ← withFreshMacroScope <| MonadQuotation.addMacroScope name)
+  modifyEnv (Term.addNamespaceParameterScope ·
+    { name, telescope, variables := parentVariables ++ variables })
+
+@[builtin_command_elab Lean.Parser.Command.namespaceWithParameters]
+def elabNamespaceWithParameters : CommandElab
+  | `(Parser.Command.namespaceWithParameters| namespace $name $binders*) => withNamespaceRollback do
+    addNamespace name.getId
+    addNamespaceParameters name binders
+  | _ => throwUnsupportedSyntax
 
 @[builtin_command_elab «section»] def elabSection : CommandElab := fun stx => do
   match stx with
@@ -433,12 +481,92 @@ private def replaceBinderAnnotation (binder : TSyntax ``Parser.Term.bracketedBin
 
 open Meta
 
+private def namespaceApplicationArguments (telescope : Expr) (arguments : Array Syntax) :
+    TermElabM (Array Expr) := do
+  let (named, positional, ellipsis) ← Term.expandArgs arguments
+  let levelNames := (collectLevelParams {} telescope).params.toList
+  let levels ← mkFreshLevelMVars levelNames.length
+  let type := telescope.instantiateLevelParams levelNames levels
+  withLocalDeclD `namespaceArguments type fun fn => do
+    let result ← Lean.Elab.Term.elabAppArgs fn named positional (some (mkConst ``Unit)) false ellipsis
+    Term.synthesizeSyntheticMVarsNoPostponing
+    let result ← instantiateMVars result
+    let args := result.getAppArgs
+    unless result.getAppFn == fn && args.size == telescope.getForallArity do
+      throwError "namespace application requires all explicit parameters"
+    if result.hasMVar || result.hasSorry then
+      throwError "could not determine the namespace arguments"
+    return args
+
+private def specializeNamespaceMember (source target : Name) (args ambient : Array Expr) :
+    TermElabM Unit := do
+  let env ← getEnv
+  let info ← getConstInfo source
+  let sourceTerm ← mkConstWithFreshMVarLevels source
+  let specialized ← Lean.Elab.Term.applyNamespaceParameters sourceTerm args
+  let value ← mkLambdaFVars ambient specialized >>= instantiateMVars >>= Term.levelMVarToParam
+  let type ← inferType value >>= instantiateMVars
+  if value.hasFVar || type.hasFVar then
+    throwError "namespace arguments may only depend on enclosing namespace parameters"
+  let levels := (collectLevelParams (collectLevelParams {} type) value).params.toList
+  let decl ← if !info.isUnsafe && (← isProp type) then
+    pure <| Declaration.thmDecl { name := target, levelParams := levels, type, value }
+  else
+    pure <| Declaration.defnDecl {
+      name := target, levelParams := levels, type, value, hints := .abbrev
+      safety := if info.isUnsafe then .unsafe else .safe
+    }
+  addDecl decl
+  Term.recordNamespaceMember target
+  let ref ← getRef
+  addDeclarationRangesFromSyntax target ref ref
+  if isProtected env source then
+    modifyEnv (addProtected · target)
+  match decl with
+  | .defnDecl _ =>
+    if info.isCtor || hasMatchPatternAttribute env source then
+      let attr ← Elab.elabAttr (← `(Parser.Term.attrInstance| match_pattern))
+      Term.applyAttributes target #[attr]
+    compileDecl decl (logErrors := false)
+  | _ => pure ()
+
+private def instantiateNamespace (target : Ident) (source : Name) (telescope : Expr)
+    (arguments : Array Syntax) : CommandElabM Unit := do
+  let env ← getEnv
+  let targetName ← getCurrNamespace
+  let isPublic := !env.header.isModule || (← getScope).isPublic
+  runTermElabM fun _ => do
+    let args ← namespaceApplicationArguments telescope arguments
+    let ambient ← Term.getActiveNamespaceParameters
+    withExporting (isExporting := isPublic) do
+      for member in Term.getNamespaceMembers (env.setExporting isPublic) source do
+        unless (env.setExporting isPublic).contains member (skipRealize := true) do continue
+        let name := (privateToUserName member).replacePrefix source targetName
+        let alias := if isPublic then name else mkPrivateName env name
+        withRef target <| specializeNamespaceMember member alias args ambient
+        modifyEnv (·.registerNamespace name.getPrefix)
+
+@[builtin_command_elab Lean.Parser.Command.namespaceApplication]
+def elabNamespaceApplication : CommandElab
+  | `(Parser.Command.namespaceApplication| namespace $target $binders* := $source $arguments*) =>
+    withNamespaceRollback do
+      let name ← resolveUniqueNamespace source
+      let some telescope := Term.getNamespaceTelescope? (← getEnv) name
+        | throwErrorAt source "`{name}` is not a parameterized namespace"
+      withNamespace target.getId do
+        unless binders.isEmpty do
+          addNamespaceParameters target binders
+        instantiateNamespace target name telescope arguments
+  | _ => throwUnsupportedSyntax
+
 def elabCheckCore (ignoreStuckTC : Bool) : CommandElab
   | `(#check%$tk $term) => withoutModifyingEnv <| runTermElabM fun _ => Term.withDeclName `_check do
     -- show signature for `#check id`/`#check @id`
     if let `($id:ident) := term then
       try
         for c in (← realizeGlobalConstWithInfos term) do
+          if (Term.getNamespaceParameterScopeFor? (← getEnv) id.getId c).isSome then
+            break
           addCompletionInfo <| .id term id.getId (danglingDot := false) {} none
           logInfoAt tk <| .signature c
           return

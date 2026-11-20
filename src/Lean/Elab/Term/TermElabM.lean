@@ -683,6 +683,95 @@ where
 
 /-- Return the name of the declaration being elaborated if available. -/
 def getDeclName? : TermElabM (Option Name) := return (← read).declName?
+
+/-- A namespace telescope is a closed Pi type ending in `Unit`. The binder names and
+section variable identifiers are needed only while the namespace is open. -/
+structure NamespaceParameterScope where
+  name : Name
+  telescope : Expr
+  variables : Array (Name × Name)
+  deriving Inhabited
+
+private builtin_initialize namespaceParameterScopes :
+    SimpleScopedEnvExtension NamespaceParameterScope (List NamespaceParameterScope) ←
+  registerSimpleScopedEnvExtension {
+    initial := []
+    addEntry := fun scopes scope => scope :: scopes
+  }
+
+private builtin_initialize namespaceTelescopes :
+    SimplePersistentEnvExtension (Name × Expr) (NameMap Expr) ←
+  registerSimplePersistentEnvExtension {
+    addEntryFn := fun telescopes (name, type) => telescopes.insert name type
+    addImportedFn := mkStateFromImportedEntries
+      (fun telescopes (name, type) => telescopes.insert name type) {}
+  }
+
+private builtin_initialize namespaceMemberOwners :
+    SimplePersistentEnvExtension (Name × Name) (NameMap Name) ←
+  registerSimplePersistentEnvExtension {
+    addEntryFn := fun owners (member, owner) => owners.insert member owner
+    addImportedFn := mkStateFromImportedEntries
+      (fun owners (member, owner) => owners.insert member owner) {}
+    exportEntriesFnEx? := some fun env _ entries =>
+      let all := entries.toArray
+      let exported := all.filter fun (member, _) => (env.setExporting true).contains member
+      { exported, server := exported, «private» := all }
+  }
+
+def getNamespaceParameterScopes (env : Environment) : List NamespaceParameterScope :=
+  namespaceParameterScopes.getState env
+
+def getNamespaceTelescope? (env : Environment) (name : Name) : Option Expr :=
+  (namespaceTelescopes.getState env).find? name
+
+def addNamespaceParameterScope (env : Environment) (scope : NamespaceParameterScope) :
+    Environment :=
+  namespaceParameterScopes.addLocalEntry
+    (namespaceTelescopes.addEntry env (scope.name, scope.telescope)) scope
+
+def recordNamespaceMember [Monad m] [MonadEnv m] (decl : Name) : m Unit := do
+  let env ← getEnv
+  let scope :: _ := getNamespaceParameterScopes env | return
+  if scope.name.isPrefixOf (privateToUserName decl) then
+    modifyEnv (namespaceMemberOwners.addEntry · (decl, scope.name))
+
+def getNamespaceMemberOwner? (env : Environment) (decl : Name) : Option Name := do
+  let owners := namespaceMemberOwners.getState env
+  if let some owner := owners.find? decl then return owner
+  if let some parent := env.getProjectionStructureName? decl then
+    return ← owners.find? parent
+  let some (.ctorInfo ctor) := env.find? decl | none
+  owners.find? ctor.induct
+
+def getNamespaceParameterScopeFor? (env : Environment) (id decl : Name) :
+    Option NamespaceParameterScope := do
+  let scopes@(_ :: _) := getNamespaceParameterScopes env | none
+  if (`_root_).isPrefixOf id then none else
+    let owner ← getNamespaceMemberOwner? env decl
+    scopes.find? (fun scope => scope.name.isPrefixOf owner)
+
+def getNamespaceMembers (env : Environment) (name : Name) : Array Name :=
+  (namespaceMemberOwners.getState env).foldl (init := #[]) fun members decl owner =>
+    if name.isPrefixOf owner then
+      match env.find? decl (skipRealize := true) with
+      | some (.inductInfo ind) =>
+        let projections := if isStructure env decl then
+          (getStructureFields env decl).filterMap (getProjFnForField? env decl)
+        else #[]
+        (members.push decl) ++ ind.ctors.toArray ++ projections
+      | some _ => members.push decl
+      | none => members
+    else members
+
+def getNamespaceParameters (scope : NamespaceParameterScope) : TermElabM (Array Expr) := do
+  let { sectionFVars, .. } ← read
+  return scope.variables.filterMap fun (_, uid) => sectionFVars.find? uid
+
+def getActiveNamespaceParameters : TermElabM (Array Expr) := do
+  let scope :: _ := getNamespaceParameterScopes (← getEnv) | return #[]
+  getNamespaceParameters scope
+
 /-- Return the list of nested `let rec` declarations that need to be lifted. -/
 def getLetRecsToLift : TermElabM (List LetRecToLift) := return (← get).letRecsToLift
 /-- Return the declaration of the given metavariable -/

@@ -1170,7 +1170,9 @@ private def collectUsed (indTypes : List InductiveType) : StateRefT CollectFVars
       ctor.type.collectFVars
 
 private def removeUnused (elabs : Array InductiveElabStep2) (vars : Array Expr) (indTypes : List InductiveType) : TermElabM (LocalContext × LocalInstances × Array Expr) := do
-  let (_, used) ← (collectUsed indTypes *> elabs.forM fun e => e.collectUsedFVars).run {}
+  let required ← Term.getActiveNamespaceParameters
+  let (_, used) ← (required.forM Expr.collectFVars *> collectUsed indTypes *>
+    elabs.forM fun e => e.collectUsedFVars).run {}
   Meta.removeUnused vars used
 
 private def withUsed {α} (elabs : Array InductiveElabStep2) (vars : Array Expr) (indTypes : List InductiveType) (k : Array Expr → TermElabM α) : TermElabM α := do
@@ -1666,6 +1668,8 @@ private def applyDerivingHandlers (views : Array InductiveView) : CommandElabM U
 
 private def elabInductiveViewsFinalize (views : Array InductiveView) (res : FinalizeContext) :
     CommandElabM Unit := do
+  for view in views do
+    Term.recordNamespaceMember view.declName
   applyComputedFields views -- NOTE: any generated code before this line is invalid
   liftTermElabM <| withMCtx res.mctx <| withLCtx res.lctx res.localInsts do
     let finalizers ← res.elabs.mapM fun elab' => elab'.prefinalize res.levelParams res.params res.replaceIndFVars
@@ -1718,6 +1722,8 @@ def elabInductives (inductives : Array (Modifiers × Syntax)) : CommandElabM Uni
       elabFlatInductiveViews vars flatElabs
       discard <| flatElabs.mapM fun e => MetaM.run' do mkSumOfProducts e.view.declName
       elabCoinductive (flatElabs.map InductiveViewToCoinductiveElab)
+    for e in elabs do
+      Term.recordNamespaceMember e.view.declName
   else
     for e in elabs do
       if let some proof := e.view.monotonicity? then

@@ -457,11 +457,14 @@ private def withHeaderSecVars {α} (vars : Array Expr) (sc : Command.Scope) (hea
   let mut revSectionFVars : Std.HashMap FVarId Name := {}
   for (uid, var) in (← read).sectionFVars do
     revSectionFVars := revSectionFVars.insert var.fvarId! uid
-  let (_, used) ← collectUsed revSectionFVars |>.run {}
+  let required ← getActiveNamespaceParameters
+  let (_, used) ← collectUsed revSectionFVars required |>.run {}
   let (lctx, localInsts, vars) ← removeUnused vars used
   withLCtx lctx localInsts <| k vars
 where
-  collectUsed revSectionFVars : StateRefT CollectFVars.State MetaM Unit := do
+  collectUsed revSectionFVars (required : Array Expr) :
+      StateRefT CollectFVars.State MetaM Unit := do
+    required.forM Expr.collectFVars
     -- directly referenced in headers
     headers.forM (·.type.collectFVars)
     -- included by `include`
@@ -563,9 +566,10 @@ private def elabFunValues (headers : Array DefViewElabHeader) (vars : Array Expr
             let type ← instantiateMVars type
             Meta.check type
         if Linter.getLinterValue linter.unusedSectionVars (← Linter.getLinterOptions) && !header.type.hasSorry && !val.hasSorry then
+          let required ← getActiveNamespaceParameters
           let unusedVars ← vars.filterMapM fun var => do
             let varDecl ← var.fvarId!.getDecl
-            return if sc.includedVars.contains varDecl.userName ||
+            return if required.contains var || sc.includedVars.contains varDecl.userName ||
                 header.type.containsFVar var.fvarId! || val.containsFVar var.fvarId! ||
                 (← vars.anyM (fun v => return (← v.fvarId!.getType).containsFVar var.fvarId!)) then
               none
@@ -602,7 +606,8 @@ private def collectUsed (headers : Array DefViewElabHeader) (values : Array Expr
 
 private def removeUnusedVars (vars : Array Expr) (headers : Array DefViewElabHeader) (values : Array Expr) (toLift : List LetRecToLift)
     : TermElabM (LocalContext × LocalInstances × Array Expr) := do
-  let (_, used) ← (collectUsed headers values toLift).run {}
+  let required ← getActiveNamespaceParameters
+  let (_, used) ← (required.forM Expr.collectFVars *> collectUsed headers values toLift).run {}
   removeUnused vars used
 
 private def withUsed {α} (vars : Array Expr) (headers : Array DefViewElabHeader) (values : Array Expr) (toLift : List LetRecToLift)
@@ -1262,6 +1267,9 @@ this warning can be disabled with `set_option warn.classDefReducibility false`."
       addDeclarationRangesForBuiltin declId.declName view.modifiers.stx view.ref
   elabSync headers := do
     finishElab headers
+    for header in headers do
+      unless header.kind.isExample do
+        recordNamespaceMember header.declName
     processDeriving headers
   elabAsync header view declId := do
     assert! view.kind.isTheorem
@@ -1341,6 +1349,7 @@ this warning can be disabled with `set_option warn.classDefReducibility false`."
     Core.logSnapshotTask { stx? := none, cancelTk? := none, task := (← getEnv).checked.map fun _ =>
       default
     }
+    recordNamespaceMember declId.declName
     withDeprecationContextFromAttrs view.modifiers.attrs do
       applyAttributesAt declId.declName view.modifiers.attrs .afterTypeChecking
       applyAttributesAt declId.declName view.modifiers.attrs .afterCompilation
